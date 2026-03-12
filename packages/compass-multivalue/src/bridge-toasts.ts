@@ -57,7 +57,7 @@ function showBridgeToast(status: BridgeStatus): void {
       openToast(TOAST_ID, {
         variant: 'warning',
         title: 'D3PyMongo bridge connection failed',
-        description: `Could not connect to bridge at ${url}. Pick features unavailable.`,
+        description: `Could not connect to bridge at ${url}. MultiValue features unavailable.`,
         timeout: 10000,
       });
       break;
@@ -67,7 +67,8 @@ function showBridgeToast(status: BridgeStatus): void {
         openToast(TOAST_ID, {
           variant: 'warning',
           title: 'D3PyMongo bridge disconnected',
-          description: 'Pick features unavailable until bridge reconnects.',
+          description:
+            'MultiValue features unavailable until bridge reconnects.',
           timeout: 8000,
         });
       }
@@ -91,7 +92,7 @@ export function initBridgeToasts(): void {
     showBridgeToast(status);
   });
 
-  console.log('[MVCompass] Bridge toast notifications initialized');
+  console.debug('[MVCompass] Bridge toast notifications initialized');
 }
 
 /**

@@ -863,12 +863,7 @@ const ImportExportModal: React.FunctionComponent<{
   const bridge = useBridgeClient();
 
   return (
-    <div
-      className={dictEditorModalStyles}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <div className={dictEditorModalStyles}>
       <div className={dictEditorModalContentStyles}>
         <ImportExportDialog
           database={database}

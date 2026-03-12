@@ -357,6 +357,10 @@ export function ImportExportDialog({
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<OperationResult | null>(null);
 
+  // T-DUMP scope options
+  const [dumpDict, setDumpDict] = useState(true);
+  const [dumpData, setDumpData] = useState(true);
+
   // CSV export options
   const [dictFields, setDictFields] = useState<DictField[]>([]);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
@@ -445,7 +449,18 @@ export function ImportExportDialog({
         collection,
         output_path: exportPath.trim(),
       };
-      if (exportFormat === 'csv') {
+      if (exportFormat === 'tdump') {
+        // T-DUMP scope: both, dict, or data
+        if (dumpDict && dumpData) {
+          params.scope = 'both';
+        } else if (dumpDict) {
+          params.scope = 'dict';
+        } else if (dumpData) {
+          params.scope = 'data';
+        } else {
+          params.scope = 'both'; // fallback if neither checked
+        }
+      } else {
         params.output_fields = Array.from(selectedFields);
         params.include_header = includeHeader;
         params.apply_conversions = applyConversions;
@@ -480,6 +495,8 @@ export function ImportExportDialog({
     exportFormat,
     database,
     collection,
+    dumpDict,
+    dumpData,
   ]);
 
   return (
@@ -631,6 +648,39 @@ export function ImportExportDialog({
                 <option value="csv">CSV</option>
               </select>
             </div>
+            {/* T-DUMP scope checkboxes */}
+            {exportFormat === 'tdump' && (
+              <div className={formRowStyles}>
+                <label className={labelStyles}>Scope:</label>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: spacing[400],
+                  }}
+                >
+                  <label className={checkboxRowStyles}>
+                    <input
+                      type="checkbox"
+                      checked={dumpDict}
+                      onChange={(e) => setDumpDict(e.target.checked)}
+                      disabled={isRunning}
+                      data-testid="tdump-dict-checkbox"
+                    />
+                    DICT
+                  </label>
+                  <label className={checkboxRowStyles}>
+                    <input
+                      type="checkbox"
+                      checked={dumpData}
+                      onChange={(e) => setDumpData(e.target.checked)}
+                      disabled={isRunning}
+                      data-testid="tdump-data-checkbox"
+                    />
+                    DATA
+                  </label>
+                </div>
+              </div>
+            )}
             <div className={formRowStyles}>
               <label className={labelStyles}>File path:</label>
               <input

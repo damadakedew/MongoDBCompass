@@ -4,6 +4,8 @@ import { palette } from '@leafygreen-ui/palette';
 import { spacing } from '@leafygreen-ui/tokens';
 import { useDarkMode, Icon, Tooltip } from '@mongodb-js/compass-components';
 import type { BridgeClient } from './bridge-client';
+import { ListOutputPanel } from './list-output-panel';
+import type { ColumnInfo } from './list-output-panel';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -325,6 +327,11 @@ const emptyHistoryStyles = css({
   opacity: 0.6,
 });
 
+const listOutputContainerStyles = css({
+  marginTop: spacing[200],
+  height: '300px',
+});
+
 // ── Constants ──────────────────────────────────────────────────────
 
 const DEBOUNCE_MS = 500;
@@ -358,12 +365,29 @@ export function DualQueryBar({
   const [history, setHistory] = useState<QueryHistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
-  // Refs for debounce
+  // LIST output state
+  const [showReport, setShowReport] = useState(false);
+  const [reportText, setReportText] = useState('');
+  const [reportColumns, setReportColumns] = useState<ColumnInfo[]>([]);
+  const [reportTotal, setReportTotal] = useState(0);
+  const [isListing, setIsListing] = useState(false);
+
+  // Refs
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const mongoTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const bridgeAvailable =
     bridgeClient !== null && bridgeClient.status === 'connected';
+
+  // Auto-resize MongoDB filter textarea to fit content
+  const autoResizeMongoTextarea = useCallback(() => {
+    const el = mongoTextareaRef.current;
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    }
+  }, []);
 
   // Sort from last translation (kept alongside the filter)
   const lastSortRef = useRef<Record<string, unknown> | null>(null);
@@ -371,8 +395,11 @@ export function DualQueryBar({
   // ── Translation ────────────────────────────────────────────────
 
   const translate = useCallback(
-    async (source: 'mongodb' | 'pick', query: string) => {
-      if (!bridgeClient || bridgeClient.status !== 'connected') return;
+    async (
+      source: 'mongodb' | 'pick',
+      query: string
+    ): Promise<TranslationResult | null> => {
+      if (!bridgeClient || bridgeClient.status !== 'connected') return null;
       if (!query.trim()) {
         // Clear the other field
         if (source === 'mongodb') {
@@ -384,7 +411,7 @@ export function DualQueryBar({
         setTranslationWarnings([]);
         setError(null);
         lastSortRef.current = null;
-        return;
+        return null;
       }
 
       setIsTranslating(true);
@@ -407,6 +434,8 @@ export function DualQueryBar({
 
         if (source === 'pick') {
           setMongoFilter(JSON.stringify(result.mongodb_filter, null, 2));
+          // Auto-resize after programmatic filter update
+          setTimeout(autoResizeMongoTextarea, 0);
         } else {
           setPickQuery(result.pick_query || '');
         }
@@ -414,13 +443,15 @@ export function DualQueryBar({
         lastSortRef.current = result.mongodb_sort ?? null;
         setFieldsUsed(result.fields_used || []);
         setTranslationWarnings(result.warnings || []);
+        return result;
       } catch (err: any) {
         setError(err.message || 'Translation failed');
+        return null;
       } finally {
         setIsTranslating(false);
       }
     },
-    [bridgeClient, database, collection]
+    [bridgeClient, database, collection, autoResizeMongoTextarea]
   );
 
   // Debounced translate
@@ -444,8 +475,9 @@ export function DualQueryBar({
       setMongoFilter(value);
       setActiveSource('mongodb');
       setError(null);
+      autoResizeMongoTextarea();
     },
-    []
+    [autoResizeMongoTextarea]
   );
 
   const handleMongoBlur = useCallback(() => {
@@ -483,15 +515,21 @@ export function DualQueryBar({
   }, [activeSource, bridgeAvailable, debouncedTranslate, pickQuery]);
 
   const handlePickKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         if (bridgeAvailable) {
-          translate('pick', pickQuery);
+          // Translate, then auto-apply+find in one keystroke
+          const result = await translate('pick', pickQuery);
+          if (result) {
+            const filter = result.mongodb_filter ?? {};
+            const sort = result.mongodb_sort ?? undefined;
+            onApplyQuery(filter, sort);
+          }
         }
       }
     },
-    [bridgeAvailable, translate, pickQuery]
+    [bridgeAvailable, translate, pickQuery, onApplyQuery]
   );
 
   // ── Apply ──────────────────────────────────────────────────────
@@ -530,6 +568,56 @@ export function DualQueryBar({
       return updated.slice(0, MAX_HISTORY);
     });
   }, [mongoFilter, pickQuery, fieldsUsed, onApplyQuery]);
+
+  // ── LIST output ──────────────────────────────────────────────
+
+  const handleList = useCallback(async () => {
+    if (!bridgeClient || bridgeClient.status !== 'connected') return;
+
+    // Use the Pick query if available, otherwise build from mongo filter
+    const query = pickQuery.trim();
+    if (!query) {
+      setError('Enter a MultiValue query to use LIST');
+      return;
+    }
+
+    setIsListing(true);
+    setError(null);
+    try {
+      const response = await bridgeClient.request(
+        'query.execute',
+        {
+          database,
+          collection,
+          query: query,
+          syntax: 'pick',
+          format: 'report',
+          limit: 50,
+        },
+        120000
+      );
+      const result = response.result as {
+        report_text?: string;
+        columns?: Array<{ name: string; width: number; justification: string }>;
+        total?: number;
+      } | null;
+
+      setReportText(result?.report_text ?? 'No items listed.');
+      setReportColumns(
+        (result?.columns ?? []).map((c) => ({
+          name: c.name,
+          width: c.width,
+          justification: (c.justification || 'L') as 'L' | 'R' | 'C',
+        }))
+      );
+      setReportTotal(result?.total ?? 0);
+      setShowReport(true);
+    } catch (err: any) {
+      setError(err.message || 'LIST query failed');
+    } finally {
+      setIsListing(false);
+    }
+  }, [bridgeClient, pickQuery, database, collection]);
 
   // ── History ────────────────────────────────────────────────────
 
@@ -580,6 +668,7 @@ export function DualQueryBar({
             darkMode ? darkInputStyles : lightInputStyles
           )}
           value={mongoFilter}
+          ref={mongoTextareaRef}
           onChange={handleMongoChange}
           onBlur={handleMongoBlur}
           onKeyDown={handleMongoKeyDown}
@@ -589,7 +678,7 @@ export function DualQueryBar({
         />
       </div>
 
-      {/* Pick query row */}
+      {/* MultiValue query row */}
       <div className={rowStyles}>
         <label
           className={cx(
@@ -597,7 +686,7 @@ export function DualQueryBar({
             darkMode ? darkLabelStyles : lightLabelStyles
           )}
         >
-          Pick:
+          MultiValue:
         </label>
         {bridgeAvailable ? (
           <textarea
@@ -627,13 +716,13 @@ export function DualQueryBar({
                   disabledInputStyles
                 )}
                 disabled
-                placeholder="Connect to D3PyMongo bridge to use Pick queries"
+                placeholder="Connect to D3PyMongo bridge to use MultiValue queries"
                 rows={1}
                 data-testid="pick-query-input"
               />
             }
           >
-            Connect to D3PyMongo bridge to use Pick queries
+            Connect to D3PyMongo bridge to use MultiValue queries
           </Tooltip>
         )}
       </div>
@@ -650,6 +739,20 @@ export function DualQueryBar({
         >
           Apply
         </button>
+
+        {bridgeAvailable && (
+          <button
+            className={cx(
+              historyButtonStyles,
+              darkMode ? darkHistoryButtonStyles : lightHistoryButtonStyles
+            )}
+            onClick={handleList}
+            disabled={isListing}
+            data-testid="list-query-button"
+          >
+            {isListing ? 'Running...' : 'LIST'}
+          </button>
+        )}
 
         {history.length > 0 && (
           <div style={{ position: 'relative' }} ref={historyRef}>
@@ -763,6 +866,18 @@ export function DualQueryBar({
               {field.name} (attr {field.attribute_number} → {field.mongo_path})
             </span>
           ))}
+        </div>
+      )}
+
+      {/* LIST/SORT output panel */}
+      {showReport && (
+        <div className={listOutputContainerStyles}>
+          <ListOutputPanel
+            reportText={reportText}
+            columns={reportColumns}
+            total={reportTotal}
+            onClose={() => setShowReport(false)}
+          />
         </div>
       )}
     </div>

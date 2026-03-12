@@ -18,7 +18,7 @@ export type EntryPointMessage = {
 
 export const APP_NAMES_FOR_PROMPT = {
   Compass: 'MVCompass',
-  DataExplorer: 'MVCompass Data Explorer',
+  DataExplorer: 'MVCompass',
 };
 
 export const buildConversationInstructionsPrompt = ({
@@ -212,7 +212,7 @@ export const buildConnectionErrorPrompt = ({
   );
   const connectionError = error.toString();
   const productDisplayName = connectionInfo.atlasMetadata
-    ? 'MVCompass Data Explorer'
+    ? 'MVCompass'
     : 'MVCompass';
   const connectionDetailsSection = connectionInfo.atlasMetadata
     ? ''

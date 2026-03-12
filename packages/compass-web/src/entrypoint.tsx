@@ -364,7 +364,7 @@ function CompassWorkspace({
                   <CreateNamespacePlugin></CreateNamespacePlugin>
                   <DropNamespacePlugin></DropNamespacePlugin>
                   <RenameCollectionPlugin></RenameCollectionPlugin>
-                  <CompassAssistantDrawerWithConnections appName="MVCompass Data Explorer" />
+                  <CompassAssistantDrawerWithConnections appName="MVCompass" />
                 </>
               );
             }}
@@ -546,7 +546,7 @@ const CompassWeb = ({
                             projectId={projectId}
                           >
                             <CompassConnections
-                              appName={appName ?? 'Compass Web'}
+                              appName={appName ?? 'MVCompass'}
                               showErrorStateOnConnectionLoadError
                               onExtraConnectionDataRequest={() => {
                                 return Promise.resolve([{}, null] as [
@@ -567,7 +567,7 @@ const CompassWeb = ({
                                       const { log, mongoLogId } = logger;
                                       log.warn(
                                         mongoLogId(1_001_000_329),
-                                        'Compass Web',
+                                        'MVCompass',
                                         'Could not load connections when trying to autoconnect',
                                         { err: err.message }
                                       );

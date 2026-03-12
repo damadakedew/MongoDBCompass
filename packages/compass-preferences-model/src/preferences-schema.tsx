@@ -115,6 +115,7 @@ export type UserConfigurablePreferences = PermanentFeatureFlags &
     inferNamespacesFromPrivileges?: boolean;
     // Features that are enabled by default in Date Explorer, but are disabled in Compass
     maxTimeMSEnvLimit?: number;
+    mvBridgeUrl: string; // MVCompass: D3PyMongo bridge server URL
   };
 
 /**
@@ -1179,6 +1180,19 @@ export const storedUserPreferencesProps: Required<{
       },
     },
     validator: z.enum(LEGACY_UUID_ENCODINGS).default(''),
+    type: 'string',
+  },
+
+  // MVCompass: D3PyMongo bridge server WebSocket URL
+  mvBridgeUrl: {
+    ui: true,
+    cli: true,
+    global: true,
+    description: {
+      short: 'D3PyMongo Bridge URL',
+      long: 'WebSocket URL for the D3PyMongo multivalue bridge server. Used for Pick query translation, DICT resolution, and TCL shell.',
+    },
+    validator: z.string().default('ws://localhost:9800'),
     type: 'string',
   },
 

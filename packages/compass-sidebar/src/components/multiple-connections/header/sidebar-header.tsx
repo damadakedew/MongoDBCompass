@@ -40,7 +40,7 @@ export function SidebarHeader({
   return (
     <div className={sidebarHeaderStyles} data-testid="sidebar-header">
       <Subtitle className={sidebarHeaderTextStyles}>
-        {isCompassWeb ? 'Data Explorer' : 'Compass'}
+        {isCompassWeb ? 'MVCompass Data Explorer' : 'MVCompass'}
       </Subtitle>
       {!isCompassWeb && (
         <ItemActionControls<Action>

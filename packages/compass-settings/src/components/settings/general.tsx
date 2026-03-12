@@ -16,6 +16,7 @@ const generalFields = [
   'enableDbAndCollStats',
   'inferNamespacesFromPrivileges',
   'legacyUUIDDisplayEncoding',
+  'mvBridgeUrl', // MVCompass: D3PyMongo bridge server URL
 ] as const;
 
 export const GeneralSettings: React.FunctionComponent = () => {

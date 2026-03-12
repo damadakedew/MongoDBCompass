@@ -91,3 +91,9 @@ export {
 };
 export type { QueryBarService };
 export type { BaseQuery as Query } from './constants/query-properties';
+// MVCompass: export store access for programmatic query setting
+export { useStore as useQueryBarStore } from './stores/context';
+export {
+  setQuery as setQueryBarQuery,
+  applyQuery as applyQueryBarQuery,
+} from './stores/query-bar-reducer';

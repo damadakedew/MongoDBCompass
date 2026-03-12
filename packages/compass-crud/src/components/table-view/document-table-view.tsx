@@ -74,6 +74,7 @@ export type DocumentTableViewProps = {
   legacyUUIDDisplayEncoding?: string;
   columnWidths: Record<string, number>;
   onColumnWidthChange: (newColumnWidths: Record<string, number>) => void;
+  dictHeaders?: Map<number, string> | null; // MVCompass: DICT-named column headers for MGData indices
 };
 
 export type GridContext = {
@@ -778,8 +779,19 @@ export class DocumentTableView extends React.Component<DocumentTableViewProps> {
     path: (string | number)[],
     parentType: TableHeaderType
   ): ColDef => {
+    // MVCompass: use DICT header name for MGData array columns
+    let headerName = String(path[path.length - 1]);
+    if (
+      this.props.dictHeaders &&
+      path.length === 2 &&
+      path[0] === 'MGData' &&
+      typeof path[1] === 'number'
+    ) {
+      headerName = this.props.dictHeaders.get(path[1]) ?? headerName;
+    }
+    // MVCompass: end DICT header lookup
     return {
-      headerName: String(path[path.length - 1]),
+      headerName,
       colId: String(path[path.length - 1]),
       valueGetter: function (params) {
         const child = params.data.hadronDocument.getChild(path);

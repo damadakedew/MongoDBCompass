@@ -32,8 +32,14 @@ import { AddDataMenu } from './add-data-menu';
 import { usePreference } from 'compass-preferences-model/provider';
 import UpdateMenu from './update-data-menu';
 import DeleteMenu from './delete-data-menu';
-import { QueryBar } from '@mongodb-js/compass-query-bar';
+import {
+  QueryBar,
+  useQueryBarStore,
+  setQueryBarQuery,
+  applyQueryBarQuery,
+} from '@mongodb-js/compass-query-bar';
 import { useConnectionInfoRef } from '@mongodb-js/compass-connections/provider';
+import { MVQueryBarWrapper } from '@mongodb-js/compass-multivalue'; // MVCompass
 import { DOCUMENT_NARROW_ICON_BREAKPOINT } from '../constants/document-narrow-icon-breakpoint';
 
 const crudQueryBarStyles = css({
@@ -173,6 +179,11 @@ export type CrudToolbarProps = {
   querySkip?: number;
   docsPerPage: number;
   updateMaxDocumentsPerPage: (docsPerPage: number) => void;
+  isMVCollection?: boolean; // MVCompass
+  onDictEditorClick?: () => void; // MVCompass
+  onTerminalClick?: () => void; // MVCompass
+  onImportExportClick?: () => void; // MVCompass
+  namespace?: string; // MVCompass: database.collection for DualQueryBar
 };
 
 const CrudToolbar: React.FunctionComponent<CrudToolbarProps> = ({
@@ -207,10 +218,30 @@ const CrudToolbar: React.FunctionComponent<CrudToolbarProps> = ({
   querySkip,
   docsPerPage,
   updateMaxDocumentsPerPage,
+  isMVCollection, // MVCompass
+  onDictEditorClick, // MVCompass
+  onTerminalClick, // MVCompass
+  onImportExportClick, // MVCompass
+  namespace, // MVCompass
 }) => {
   const track = useTelemetry();
   const connectionInfoRef = useConnectionInfoRef();
   const isImportExportEnabled = usePreference('enableImportExport');
+
+  // MVCompass: query bar store access for DualQueryBar → Compass filter sync
+  const queryBarStore = useQueryBarStore();
+  const handleMVApplyFilter = useCallback(
+    (filter: Record<string, unknown>, sort?: Record<string, unknown>) => {
+      const query: Record<string, unknown> = { filter };
+      if (sort && Object.keys(sort).length > 0) {
+        query.sort = sort;
+      }
+      queryBarStore.dispatch(setQueryBarQuery(query as any));
+      queryBarStore.dispatch(applyQueryBarQuery('crud') as any);
+    },
+    [queryBarStore]
+  );
+
   const [dismissed, setDismissed] = usePersistedState(
     'mongodb_compass_dismissedAtlasDocSkillBanner',
     false
@@ -342,6 +373,13 @@ const CrudToolbar: React.FunctionComponent<CrudToolbarProps> = ({
           onReset={onResetClicked}
           showExplainButton={enableExplainPlan}
         />
+        {/* MVCompass: Pick Access query bar for multivalue collections */}
+        {isMVCollection && namespace && (
+          <MVQueryBarWrapper
+            namespace={namespace}
+            onApplyFilter={handleMVApplyFilter}
+          />
+        )}
       </div>
 
       <AtlasSkillsBanner
@@ -420,6 +458,43 @@ const CrudToolbar: React.FunctionComponent<CrudToolbarProps> = ({
             <span className={exportCodeButtonTextStyles}>Export Code</span>
           </Button>
           {insights && <SignalPopover signals={insights} />}
+          {/* MVCompass: multivalue collection toolbar buttons */}
+          {isMVCollection && onDictEditorClick && (
+            <Button
+              onClick={onDictEditorClick}
+              title="Edit DICT field definitions"
+              aria-label="Edit DICT field definitions"
+              data-testid="crud-dict-editor-button"
+              size="xsmall"
+              leftGlyph={<Icon glyph="Edit" />}
+            >
+              DICT
+            </Button>
+          )}
+          {isMVCollection && onTerminalClick && (
+            <Button
+              onClick={onTerminalClick}
+              title="Open TCL shell"
+              aria-label="Open TCL shell"
+              data-testid="crud-terminal-button"
+              size="xsmall"
+              leftGlyph={<Icon glyph="ChevronRight" />}
+            >
+              TCL
+            </Button>
+          )}
+          {isMVCollection && onImportExportClick && (
+            <Button
+              onClick={onImportExportClick}
+              title="Import or export data"
+              aria-label="Import or export data"
+              data-testid="crud-import-export-button"
+              size="xsmall"
+              leftGlyph={<Icon glyph="Import" />}
+            >
+              Import/Export
+            </Button>
+          )}
         </div>
         <div className={toolbarRightActionStyles}>
           <Select

@@ -5,6 +5,11 @@ import EditableDocument from './editable-document';
 import type { ReadonlyDocumentProps } from './readonly-document';
 import ReadonlyDocument from './readonly-document';
 import type { BSONObject } from '../stores/crud-store';
+import {
+  isMGData,
+  DocumentViewToggle,
+  useMVCollection,
+} from '@mongodb-js/compass-multivalue'; // MVCompass
 
 export type DocumentProps = {
   doc: HadronDocument | BSONObject;
@@ -34,6 +39,26 @@ const Document = (props: DocumentProps) => {
     }
     return new HadronDocument(_doc as Record<string, unknown>);
   }, [_doc]);
+
+  // MVCompass: render multivalue attribute view for MGData documents
+  const rawDoc = useMemo(() => {
+    if (typeof _doc?.isRoot === 'function') {
+      return (_doc as HadronDocument).generateObject();
+    }
+    return _doc as Record<string, unknown>;
+  }, [_doc]);
+
+  const { dictFields } = useMVCollection(); // MVCompass: DICT data from context
+
+  if (isMGData(rawDoc)) {
+    return (
+      <DocumentViewToggle
+        document={rawDoc as { _id: string; [key: string]: any }}
+        dictFields={dictFields}
+      />
+    );
+  }
+  // MVCompass: end multivalue check
 
   if (editable && isTimeSeries) {
     return (

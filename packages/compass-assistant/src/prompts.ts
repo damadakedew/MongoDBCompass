@@ -17,8 +17,8 @@ export type EntryPointMessage = {
 };
 
 export const APP_NAMES_FOR_PROMPT = {
-  Compass: 'MongoDB Compass',
-  DataExplorer: 'MongoDB Atlas Data Explorer',
+  Compass: 'MVCompass',
+  DataExplorer: 'MVCompass Data Explorer',
 };
 
 export const buildConversationInstructionsPrompt = ({
@@ -212,8 +212,8 @@ export const buildConnectionErrorPrompt = ({
   );
   const connectionError = error.toString();
   const productDisplayName = connectionInfo.atlasMetadata
-    ? 'Data Explorer'
-    : 'Compass';
+    ? 'MVCompass Data Explorer'
+    : 'MVCompass';
   const connectionDetailsSection = connectionInfo.atlasMetadata
     ? ''
     : ` If no auth mechanism is specified in the connection string, the default (username/password) is being used:

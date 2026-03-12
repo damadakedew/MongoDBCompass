@@ -9,6 +9,11 @@ import type {
   VirtualTreeItem,
 } from './virtual-list/use-virtual-navigation-tree';
 import { ConnectionStatus } from '@mongodb-js/compass-connections/provider';
+// MVCompass: multivalue collection grouping
+import {
+  isMultivalueDatabase,
+  reorderCollectionsForGroupedView,
+} from '@mongodb-js/compass-multivalue'; // MVCompass
 
 type DatabaseOrCollectionStatus =
   | 'initial'
@@ -336,8 +341,15 @@ const databaseToItems = ({
     );
   }
 
+  // MVCompass: reorder collections if this is a multivalue database
+  const collectionNames = collections.map((c) => c.name); // MVCompass
+  const orderedCollections = isMultivalueDatabase(collectionNames) // MVCompass
+    ? reorderCollectionsForGroupedView(collections) // MVCompass
+    : collections; // MVCompass
+
   return sidebarData.concat(
-    collections.map(
+    orderedCollections.map(
+      // MVCompass: was `collections.map(`
       ({ _id: id, name, type, inferredFromPrivileges }, collectionIndex) => ({
         id: `${connectionId}.${id}`, // id is the namespace of the collection, so includes db as well
         level: level + 1,

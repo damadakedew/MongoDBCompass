@@ -329,7 +329,7 @@ const emptyHistoryStyles = css({
 
 const listOutputContainerStyles = css({
   marginTop: spacing[200],
-  height: '300px',
+  height: '60vh',
 });
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -371,6 +371,8 @@ export function DualQueryBar({
   const [reportColumns, setReportColumns] = useState<ColumnInfo[]>([]);
   const [reportTotal, setReportTotal] = useState(0);
   const [isListing, setIsListing] = useState(false);
+  const [listPage, setListPage] = useState(1);
+  const [listHasMore, setListHasMore] = useState(false);
 
   // Refs
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -571,53 +573,76 @@ export function DualQueryBar({
 
   // ── LIST output ──────────────────────────────────────────────
 
-  const handleList = useCallback(async () => {
-    if (!bridgeClient || bridgeClient.status !== 'connected') return;
+  const PAGE_SIZE = 50;
 
-    // Use the Pick query if available, otherwise build from mongo filter
-    const query = pickQuery.trim();
-    if (!query) {
-      setError('Enter a MultiValue query to use LIST');
-      return;
-    }
+  const handleList = useCallback(
+    async (skip = 0) => {
+      if (!bridgeClient || bridgeClient.status !== 'connected') return;
 
-    setIsListing(true);
-    setError(null);
-    try {
-      const response = await bridgeClient.request(
-        'query.execute',
-        {
-          database,
-          collection,
-          query: query,
-          syntax: 'pick',
-          format: 'report',
-          limit: 50,
-        },
-        120000
-      );
-      const result = response.result as {
-        report_text?: string;
-        columns?: Array<{ name: string; width: number; justification: string }>;
-        total?: number;
-      } | null;
+      // Use the Pick query if available, otherwise build from mongo filter
+      const query = pickQuery.trim();
+      if (!query) {
+        setError('Enter a MultiValue query to use LIST');
+        return;
+      }
 
-      setReportText(result?.report_text ?? 'No items listed.');
-      setReportColumns(
-        (result?.columns ?? []).map((c) => ({
-          name: c.name,
-          width: c.width,
-          justification: (c.justification || 'L') as 'L' | 'R' | 'C',
-        }))
-      );
-      setReportTotal(result?.total ?? 0);
-      setShowReport(true);
-    } catch (err: any) {
-      setError(err.message || 'LIST query failed');
-    } finally {
-      setIsListing(false);
-    }
-  }, [bridgeClient, pickQuery, database, collection]);
+      setIsListing(true);
+      setError(null);
+      try {
+        const response = await bridgeClient.request(
+          'query.execute',
+          {
+            database,
+            collection,
+            query: query,
+            syntax: 'pick',
+            format: 'report',
+            limit: PAGE_SIZE,
+            skip,
+          },
+          120000
+        );
+        const result = response.result as {
+          report_text?: string;
+          columns?: Array<{
+            name: string;
+            width: number;
+            justification: string;
+          }>;
+          total?: number;
+          has_more?: boolean;
+        } | null;
+
+        setReportText(result?.report_text ?? 'No items listed.');
+        setReportColumns(
+          (result?.columns ?? []).map((c) => ({
+            name: c.name,
+            width: c.width,
+            justification: (c.justification || 'L') as 'L' | 'R' | 'C',
+          }))
+        );
+        setReportTotal(result?.total ?? 0);
+        setListHasMore(result?.has_more ?? false);
+        setListPage(Math.floor(skip / PAGE_SIZE) + 1);
+        setShowReport(true);
+      } catch (err: any) {
+        setError(err.message || 'LIST query failed');
+      } finally {
+        setIsListing(false);
+      }
+    },
+    [bridgeClient, pickQuery, database, collection]
+  );
+
+  const handleNextPage = useCallback(() => {
+    const nextSkip = listPage * PAGE_SIZE;
+    handleList(nextSkip);
+  }, [handleList, listPage]);
+
+  const handlePreviousPage = useCallback(() => {
+    const prevSkip = Math.max(0, (listPage - 2) * PAGE_SIZE);
+    handleList(prevSkip);
+  }, [handleList, listPage]);
 
   // ── History ────────────────────────────────────────────────────
 
@@ -746,7 +771,7 @@ export function DualQueryBar({
               historyButtonStyles,
               darkMode ? darkHistoryButtonStyles : lightHistoryButtonStyles
             )}
-            onClick={handleList}
+            onClick={() => handleList(0)}
             disabled={isListing}
             data-testid="list-query-button"
           >
@@ -877,6 +902,11 @@ export function DualQueryBar({
             columns={reportColumns}
             total={reportTotal}
             onClose={() => setShowReport(false)}
+            page={listPage}
+            hasMore={listHasMore}
+            onNextPage={handleNextPage}
+            onPreviousPage={handlePreviousPage}
+            isPaging={isListing}
           />
         </div>
       )}

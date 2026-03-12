@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useContext, useMemo } from 'react';
 import HadronDocument from 'hadron-document';
 import type { EditableDocumentProps } from './editable-document';
 import EditableDocument from './editable-document';
@@ -10,6 +10,7 @@ import {
   DocumentViewToggle,
   useMVCollection,
 } from '@mongodb-js/compass-multivalue'; // MVCompass
+import { ProgramEditorContext } from './document-list'; // MVCompass
 
 export type DocumentProps = {
   doc: HadronDocument | BSONObject;
@@ -49,12 +50,16 @@ const Document = (props: DocumentProps) => {
   }, [_doc]);
 
   const { dictFields } = useMVCollection(); // MVCompass: DICT data from context
+  const onViewSource = useContext(ProgramEditorContext); // MVCompass: program editor
 
   if (isMGData(rawDoc)) {
     return (
       <DocumentViewToggle
         document={rawDoc as { _id: string; [key: string]: any }}
         dictFields={dictFields}
+        onViewSource={
+          onViewSource ? () => onViewSource(String(rawDoc._id)) : undefined
+        }
       />
     );
   }

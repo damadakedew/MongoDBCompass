@@ -53,6 +53,8 @@ import {
   DictEditor,
   TerminalEmulator,
   ImportExportDialog,
+  ProgramEditor,
+  isProgramCollection,
   useBridgeClient,
   clearDictCache,
 } from '@mongodb-js/compass-multivalue'; // MVCompass
@@ -312,15 +314,57 @@ const useViewScrollTop = (view: DocumentView, isFetching: boolean) => {
   };
 };
 
-// MVCompass: Reads dictFields from context (inside provider) and notifies parent
+// MVCompass: Context for opening the program editor from individual document rows.
+// When a program collection is detected, each document row gets a "View Source" link.
+export const ProgramEditorContext = React.createContext<
+  ((itemId: string) => void) | null
+>(null);
+
+// MVCompass: Reads dictFields from context (inside provider) and notifies parent.
+// Falls back to detect.multivalue bridge call when DICT fields are empty
+// (e.g., collection has MGData documents but no DICT_ entries).
 const MVCollectionDetector: React.FunctionComponent<{
   onDetected: (isMV: boolean) => void;
 }> = ({ onDetected }) => {
-  const { dictFields } = useMVCollection();
-  const isMV = dictFields !== null && dictFields.length > 0;
+  const { dictFields, database, collection } = useMVCollection();
+  const hasDictFields = dictFields !== null && dictFields.length > 0;
+  const detectedRef = React.useRef(false);
+  const bridgeClient = useBridgeClient(); // reactive — re-renders on connect/disconnect
+
+  // If DICT fields found, immediately mark as MV
   React.useEffect(() => {
-    onDetected(isMV);
-  }, [isMV, onDetected]);
+    if (hasDictFields) {
+      detectedRef.current = true;
+      onDetected(true);
+    }
+  }, [hasDictFields, onDetected]);
+
+  // Fallback: if no DICT fields, ask bridge to detect via MGData sampling
+  React.useEffect(() => {
+    if (hasDictFields || detectedRef.current) return;
+    if (!database || !collection) return;
+    if (!bridgeClient || bridgeClient.status !== 'connected') return;
+
+    let cancelled = false;
+    bridgeClient
+      .request('detect.multivalue', { database, collection })
+      .then((response) => {
+        if (cancelled) return;
+        const result = response.result as { multivalue?: boolean } | null;
+        if (result?.multivalue) {
+          detectedRef.current = true;
+          onDetected(true);
+        }
+      })
+      .catch(() => {
+        // Bridge unavailable — leave as non-MV
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasDictFields, database, collection, bridgeClient, onDetected]);
+
   return null; // Renders nothing — just a bridge between context and parent state
 };
 
@@ -615,7 +659,21 @@ const DocumentList: React.FunctionComponent<DocumentListProps> = (props) => {
   const [dictEditorOpen, setDictEditorOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [importExportOpen, setImportExportOpen] = useState(false);
+  const [programEditorOpen, setProgramEditorOpen] = useState(false);
+  const [programEditorItemId, setProgramEditorItemId] = useState('');
   const [isMVCollection, setIsMVCollection] = useState(false);
+
+  // MVCompass: detect if this is a program collection (BP, PROGRAMS, etc.)
+  const collectionName = ns.includes('.')
+    ? ns.split('.').slice(1).join('.')
+    : ns;
+  const isProgramColl = isMVCollection && isProgramCollection(collectionName);
+
+  // MVCompass: callback to open program editor from document rows (no prompt needed)
+  const handleViewSource = useCallback((itemId: string) => {
+    setProgramEditorItemId(itemId);
+    setProgramEditorOpen(true);
+  }, []);
 
   return (
     <MVCollectionProvider
@@ -629,134 +687,155 @@ const DocumentList: React.FunctionComponent<DocumentListProps> = (props) => {
           if (detected !== isMVCollection) setIsMVCollection(detected);
         }}
       />
-      <div className={documentsContainerStyles} data-testid="compass-crud">
-        <WorkspaceContainer
-          scrollableContainerRef={scrollRef}
-          initialTopInView={currentViewInitialScrollTop === 0}
-          toolbar={
-            <CrudToolbar
-              activeDocumentView={view}
-              error={error}
-              count={count}
-              isFetching={isFetching}
-              lastCountRunMaxTimeMS={lastCountRunMaxTimeMS}
-              loadingCount={loadingCount}
-              start={start}
-              end={end}
-              page={page}
-              getPage={getPage}
-              insertDataHandler={onOpenInsert}
-              onApplyClicked={onApplyClicked}
-              onResetClicked={onResetClicked}
-              onUpdateButtonClicked={onUpdateButtonClicked}
-              onDeleteButtonClicked={onDeleteButtonClicked}
-              onExpandAllClicked={onExpandAllClicked}
-              onCollapseAllClicked={onCollapseAllClicked}
-              openExportFileDialog={openExportFileDialog}
-              onOpenExportToLanguage={store.openQueryExportToLanguageDialog.bind(
-                store
-              )}
-              outdated={outdated}
-              readonly={!isEditable}
-              viewSwitchHandler={handleViewChanged}
-              isWritable={isWritable}
-              instanceDescription={instanceDescription}
-              refreshDocuments={refreshDocuments}
-              resultId={resultId}
-              querySkip={query.skip}
-              queryLimit={query.limit}
-              insights={getToolbarSignal({
-                query: JSON.stringify(query.filter ?? {}),
-                isCollectionScan: Boolean(isCollectionScan),
-                isSearchIndexesSupported,
-                canCreateIndexes: !preferencesReadWrite,
-                onCreateIndex: store.openCreateIndexModal.bind(store),
-                onCreateSearchIndex:
-                  store.openCreateSearchIndexModal.bind(store),
-                onAssistantButtonClick: tellMoreAboutInsight
-                  ? () =>
-                      tellMoreAboutInsight({
-                        id: 'query-executed-without-index',
-                        query: JSON.stringify(query),
-                      })
-                  : undefined,
-              })}
-              docsPerPage={docsPerPage}
-              updateMaxDocumentsPerPage={handleMaxDocsPerPageChanged}
-              isMVCollection={isMVCollection}
-              onDictEditorClick={() => setDictEditorOpen(true)}
-              onTerminalClick={() => setTerminalOpen(true)}
-              onImportExportClick={() => setImportExportOpen(true)}
-              namespace={ns}
-            />
-          }
-        >
-          {renderContent}
-        </WorkspaceContainer>
+      <ProgramEditorContext.Provider
+        value={isProgramColl ? handleViewSource : null}
+      >
+        <div className={documentsContainerStyles} data-testid="compass-crud">
+          <WorkspaceContainer
+            scrollableContainerRef={scrollRef}
+            initialTopInView={currentViewInitialScrollTop === 0}
+            toolbar={
+              <CrudToolbar
+                activeDocumentView={view}
+                error={error}
+                count={count}
+                isFetching={isFetching}
+                lastCountRunMaxTimeMS={lastCountRunMaxTimeMS}
+                loadingCount={loadingCount}
+                start={start}
+                end={end}
+                page={page}
+                getPage={getPage}
+                insertDataHandler={onOpenInsert}
+                onApplyClicked={onApplyClicked}
+                onResetClicked={onResetClicked}
+                onUpdateButtonClicked={onUpdateButtonClicked}
+                onDeleteButtonClicked={onDeleteButtonClicked}
+                onExpandAllClicked={onExpandAllClicked}
+                onCollapseAllClicked={onCollapseAllClicked}
+                openExportFileDialog={openExportFileDialog}
+                onOpenExportToLanguage={store.openQueryExportToLanguageDialog.bind(
+                  store
+                )}
+                outdated={outdated}
+                readonly={!isEditable}
+                viewSwitchHandler={handleViewChanged}
+                isWritable={isWritable}
+                instanceDescription={instanceDescription}
+                refreshDocuments={refreshDocuments}
+                resultId={resultId}
+                querySkip={query.skip}
+                queryLimit={query.limit}
+                insights={getToolbarSignal({
+                  query: JSON.stringify(query.filter ?? {}),
+                  isCollectionScan: Boolean(isCollectionScan),
+                  isSearchIndexesSupported,
+                  canCreateIndexes: !preferencesReadWrite,
+                  onCreateIndex: store.openCreateIndexModal.bind(store),
+                  onCreateSearchIndex:
+                    store.openCreateSearchIndexModal.bind(store),
+                  onAssistantButtonClick: tellMoreAboutInsight
+                    ? () =>
+                        tellMoreAboutInsight({
+                          id: 'query-executed-without-index',
+                          query: JSON.stringify(query),
+                        })
+                    : undefined,
+                })}
+                docsPerPage={docsPerPage}
+                updateMaxDocumentsPerPage={handleMaxDocsPerPageChanged}
+                isMVCollection={isMVCollection}
+                onDictEditorClick={() => setDictEditorOpen(true)}
+                onTerminalClick={() => setTerminalOpen(true)}
+                onImportExportClick={() => setImportExportOpen(true)}
+                isProgramCollection={isProgramColl}
+                onProgramEditorClick={() => {
+                  // Open editor for first visible document
+                  const firstId = docs?.[0]?.generateObject?.()?.['_id'];
+                  if (firstId) {
+                    setProgramEditorItemId(String(firstId));
+                    setProgramEditorOpen(true);
+                  }
+                }}
+                namespace={ns}
+              />
+            }
+          >
+            {renderContent}
+          </WorkspaceContainer>
 
-        {isEditable && (
-          <>
-            <InsertDocumentDialog
-              closeInsertDocumentDialog={closeInsertDocumentDialog}
-              insertDocument={insertDocument}
-              insertMany={insertMany}
-              updateJsonDoc={updateJsonDoc}
-              toggleInsertDocument={toggleInsertDocument}
-              toggleInsertDocumentView={toggleInsertDocumentView}
-              jsonView
-              version={version}
+          {isEditable && (
+            <>
+              <InsertDocumentDialog
+                closeInsertDocumentDialog={closeInsertDocumentDialog}
+                insertDocument={insertDocument}
+                insertMany={insertMany}
+                updateJsonDoc={updateJsonDoc}
+                toggleInsertDocument={toggleInsertDocument}
+                toggleInsertDocumentView={toggleInsertDocumentView}
+                jsonView
+                version={version}
+                ns={ns}
+                updateComment={updateComment}
+                {...insert}
+              />
+              <BulkUpdateModal
+                ns={ns}
+                filter={query.filter ?? {}}
+                count={count}
+                enablePreview={isUpdatePreviewSupported}
+                {...bulkUpdate}
+                closeBulkUpdateModal={closeBulkUpdateModal}
+                updateBulkUpdatePreview={updateBulkUpdatePreview}
+                runBulkUpdate={runBulkUpdate}
+                saveUpdateQuery={onSaveUpdateQuery}
+              />
+              <BulkDeleteModal
+                open={store.state.bulkDelete.status === 'open'}
+                namespace={store.state.ns}
+                documentCount={store.state.bulkDelete.affected}
+                filter={query.filter ?? {}}
+                onCancel={onCancelBulkDeleteDialog}
+                onConfirmDeletion={onConfirmBulkDeleteDialog}
+                sampleDocuments={store.state.bulkDelete.previews}
+                onExportToLanguage={onExportToLanguageDeleteQuery}
+              />
+            </>
+          )}
+          {/* MVCompass: DICT editor modal */}
+          {dictEditorOpen && (
+            <DictEditorModal
               ns={ns}
-              updateComment={updateComment}
-              {...insert}
+              onClose={() => {
+                setDictEditorOpen(false);
+                const [database, collection] = ns.split('.');
+                if (database && collection) {
+                  clearDictCache(database, collection);
+                }
+              }}
             />
-            <BulkUpdateModal
+          )}
+          {/* MVCompass: Terminal emulator modal */}
+          {terminalOpen && (
+            <TerminalModal ns={ns} onClose={() => setTerminalOpen(false)} />
+          )}
+          {/* MVCompass: Import/Export dialog */}
+          {importExportOpen && (
+            <ImportExportModal
               ns={ns}
-              filter={query.filter ?? {}}
-              count={count}
-              enablePreview={isUpdatePreviewSupported}
-              {...bulkUpdate}
-              closeBulkUpdateModal={closeBulkUpdateModal}
-              updateBulkUpdatePreview={updateBulkUpdatePreview}
-              runBulkUpdate={runBulkUpdate}
-              saveUpdateQuery={onSaveUpdateQuery}
+              onClose={() => setImportExportOpen(false)}
             />
-            <BulkDeleteModal
-              open={store.state.bulkDelete.status === 'open'}
-              namespace={store.state.ns}
-              documentCount={store.state.bulkDelete.affected}
-              filter={query.filter ?? {}}
-              onCancel={onCancelBulkDeleteDialog}
-              onConfirmDeletion={onConfirmBulkDeleteDialog}
-              sampleDocuments={store.state.bulkDelete.previews}
-              onExportToLanguage={onExportToLanguageDeleteQuery}
+          )}
+          {/* MVCompass: Program editor modal */}
+          {programEditorOpen && programEditorItemId && (
+            <ProgramEditorModal
+              ns={ns}
+              itemId={programEditorItemId}
+              onClose={() => setProgramEditorOpen(false)}
             />
-          </>
-        )}
-        {/* MVCompass: DICT editor modal */}
-        {dictEditorOpen && (
-          <DictEditorModal
-            ns={ns}
-            onClose={() => {
-              setDictEditorOpen(false);
-              const [database, collection] = ns.split('.');
-              if (database && collection) {
-                clearDictCache(database, collection);
-              }
-            }}
-          />
-        )}
-        {/* MVCompass: Terminal emulator modal */}
-        {terminalOpen && (
-          <TerminalModal ns={ns} onClose={() => setTerminalOpen(false)} />
-        )}
-        {/* MVCompass: Import/Export dialog */}
-        {importExportOpen && (
-          <ImportExportModal
-            ns={ns}
-            onClose={() => setImportExportOpen(false)}
-          />
-        )}
-      </div>
+          )}
+        </div>
+      </ProgramEditorContext.Provider>
     </MVCollectionProvider>
   );
 };
@@ -873,6 +952,30 @@ const ImportExportModal: React.FunctionComponent<{
         />
       </div>
     </div>
+  );
+};
+
+// MVCompass: Program editor modal wrapper
+const ProgramEditorModal: React.FunctionComponent<{
+  ns: string;
+  itemId: string;
+  onClose: () => void;
+}> = ({ ns, itemId, onClose }) => {
+  const parts = ns.split('.');
+  const database = parts[0] || '';
+  const collection = parts.slice(1).join('.') || '';
+  const bridge = useBridgeClient();
+
+  if (!bridge) return null;
+
+  return (
+    <ProgramEditor
+      database={database}
+      collection={collection}
+      itemId={itemId}
+      bridgeClient={bridge}
+      onClose={onClose}
+    />
   );
 };
 

@@ -95,5 +95,12 @@ export type { ListOutputPanelProps, ColumnInfo } from './list-output-panel';
 export { ImportExportDialog } from './import-export-dialog';
 export type { ImportExportDialogProps } from './import-export-dialog';
 
+// Program editor
+export { ProgramEditor, isProgramCollection } from './program-editor';
+export type { ProgramEditorProps } from './program-editor';
+
+// Pick Basic language support
+export { pickBasicLanguage } from './pick-basic-language';
+
 // Bridge toast notifications
 export { initBridgeToasts, showBridgeError } from './bridge-toasts';

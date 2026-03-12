@@ -16,6 +16,11 @@ export interface ListOutputPanelProps {
   columns: ColumnInfo[];
   total: number;
   onClose?: () => void;
+  page?: number;
+  hasMore?: boolean;
+  onNextPage?: () => void;
+  onPreviousPage?: () => void;
+  isPaging?: boolean;
 }
 
 // ── Styles (always dark — terminal aesthetic) ─────────────────────
@@ -115,6 +120,35 @@ const emptyStyles = css({
   fontStyle: 'italic',
 });
 
+const pagingButtonStyles = css({
+  background: 'transparent',
+  border: `1px solid ${palette.gray.dark2}`,
+  color: palette.gray.light1,
+  cursor: 'pointer',
+  fontFamily: '"Source Code Pro", Menlo, Monaco, Consolas, monospace',
+  fontSize: '11px',
+  padding: `2px ${spacing[200]}px`,
+  borderRadius: '3px',
+  ':hover': {
+    color: palette.white,
+    borderColor: palette.gray.dark1,
+  },
+  ':disabled': {
+    opacity: 0.4,
+    cursor: 'not-allowed',
+    ':hover': {
+      color: palette.gray.light1,
+      borderColor: palette.gray.dark2,
+    },
+  },
+});
+
+const pagingContainerStyles = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: spacing[200],
+});
+
 // ── Component ──────────────────────────────────────────────────────
 
 export function ListOutputPanel({
@@ -122,6 +156,11 @@ export function ListOutputPanel({
   columns,
   total,
   onClose,
+  page = 1,
+  hasMore = false,
+  onNextPage,
+  onPreviousPage,
+  isPaging = false,
 }: ListOutputPanelProps) {
   const [copied, setCopied] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
@@ -193,9 +232,33 @@ export function ListOutputPanel({
       {/* Status bar */}
       <div className={statusBarStyles} data-testid="status-bar">
         <span>
-          {total} item{total !== 1 ? 's' : ''} listed
+          {onNextPage || onPreviousPage
+            ? `${total} item${total !== 1 ? 's' : ''} — Page ${page}`
+            : `${total} item${total !== 1 ? 's' : ''} listed`}
         </span>
-        <span>{columns.map((col) => col.name).join(' | ')}</span>
+        <div className={pagingContainerStyles}>
+          {(onNextPage || onPreviousPage) && (
+            <>
+              <button
+                className={pagingButtonStyles}
+                onClick={onPreviousPage}
+                disabled={page <= 1 || isPaging}
+                data-testid="prev-page-button"
+              >
+                ← Previous
+              </button>
+              <button
+                className={pagingButtonStyles}
+                onClick={onNextPage}
+                disabled={!hasMore || isPaging}
+                data-testid="next-page-button"
+              >
+                Next →
+              </button>
+            </>
+          )}
+          <span>{columns.map((col) => col.name).join(' | ')}</span>
+        </div>
       </div>
     </div>
   );

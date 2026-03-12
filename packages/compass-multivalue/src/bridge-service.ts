@@ -15,6 +15,13 @@ const statusListeners: Array<(status: BridgeStatus) => void> = [];
 let suppressForwarding = false; // Hold back status during init sequence
 let mongoInitDone = false; // True after bridge 'connect' request with MongoDB URI succeeds
 
+// Auto-reconnect state
+let reconnectTimer: ReturnType<typeof setInterval> | null = null;
+let reconnecting = false;
+let lastBridgeUrl = '';
+let lastMongoConnectionString: string | undefined;
+const RECONNECT_INTERVAL_MS = 10000;
+
 /**
  * Get the current bridge client instance (or null if not initialized).
  */
@@ -47,6 +54,11 @@ export function initBridgeClient(url: string): BridgeClient {
     for (const listener of statusListeners) {
       listener(status);
     }
+    // Start auto-reconnect on unexpected disconnect
+    if (status === 'disconnected' || status === 'error') {
+      mongoInitDone = false;
+      startReconnectTimer();
+    }
   });
 
   return bridgeInstance;
@@ -56,6 +68,7 @@ export function initBridgeClient(url: string): BridgeClient {
  * Disconnect and destroy the bridge client.
  */
 export function disconnectBridge(): void {
+  stopReconnectTimer();
   if (bridgeInstance) {
     bridgeInstance.disconnect();
     bridgeInstance = null;
@@ -85,6 +98,41 @@ function notifyStatus(status: BridgeStatus): void {
   }
 }
 
+// ── Auto-reconnect ──────────────────────────────────────────────────
+
+function startReconnectTimer(): void {
+  if (reconnectTimer) return; // Already running
+  reconnectTimer = setInterval(async () => {
+    if (reconnecting) return;
+    const client = getBridgeClient();
+    if (client && client.status === 'connected' && mongoInitDone) {
+      stopReconnectTimer();
+      return;
+    }
+    if (!lastBridgeUrl) return;
+
+    reconnecting = true;
+    console.debug('[MVCompass] auto-reconnect attempt');
+    try {
+      await connectBridgeFromPreferences(
+        lastBridgeUrl,
+        lastMongoConnectionString
+      );
+    } catch {
+      // connectBridgeFromPreferences already handles errors
+    } finally {
+      reconnecting = false;
+    }
+  }, RECONNECT_INTERVAL_MS);
+}
+
+function stopReconnectTimer(): void {
+  if (reconnectTimer) {
+    clearInterval(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
 /**
  * Initialize the bridge from Compass preferences and attempt to connect.
  * Intended to be called once during app startup or when preferences change.
@@ -103,6 +151,10 @@ export async function connectBridgeFromPreferences(
     console.debug('[MVCompass] empty bridge URL, skipping');
     return 'disconnected';
   }
+
+  // Store for auto-reconnect
+  lastBridgeUrl = mvBridgeUrl;
+  lastMongoConnectionString = mongoConnectionString;
 
   const client = initBridgeClient(mvBridgeUrl);
   try {
@@ -132,10 +184,12 @@ export async function connectBridgeFromPreferences(
     // Now allow forwarding and notify — useDictFields will fire dict.list
     suppressForwarding = false;
     notifyStatus('connected');
+    stopReconnectTimer();
     return 'connected';
   } catch (err) {
     suppressForwarding = false;
     console.warn('[MVCompass] bridge connection failed:', err);
+    startReconnectTimer();
     return 'error';
   }
 }

@@ -183,6 +183,8 @@ export type CrudToolbarProps = {
   onDictEditorClick?: () => void; // MVCompass
   onTerminalClick?: () => void; // MVCompass
   onImportExportClick?: () => void; // MVCompass
+  isProgramCollection?: boolean; // MVCompass: collection looks like Pick Basic source
+  onProgramEditorClick?: () => void; // MVCompass
   namespace?: string; // MVCompass: database.collection for DualQueryBar
 };
 
@@ -222,6 +224,8 @@ const CrudToolbar: React.FunctionComponent<CrudToolbarProps> = ({
   onDictEditorClick, // MVCompass
   onTerminalClick, // MVCompass
   onImportExportClick, // MVCompass
+  isProgramCollection: isProgramColl, // MVCompass
+  onProgramEditorClick, // MVCompass
   namespace, // MVCompass
 }) => {
   const track = useTelemetry();
@@ -493,6 +497,19 @@ const CrudToolbar: React.FunctionComponent<CrudToolbarProps> = ({
               leftGlyph={<Icon glyph="Import" />}
             >
               Import/Export
+            </Button>
+          )}
+          {/* MVCompass: Program editor for Pick Basic source collections */}
+          {isProgramColl && onProgramEditorClick && (
+            <Button
+              onClick={onProgramEditorClick}
+              title="View Pick Basic source code"
+              aria-label="View Pick Basic source code"
+              data-testid="crud-program-editor-button"
+              size="xsmall"
+              leftGlyph={<Icon glyph="Code" />}
+            >
+              Source
             </Button>
           )}
         </div>

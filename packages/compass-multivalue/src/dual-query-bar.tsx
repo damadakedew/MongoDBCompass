@@ -436,8 +436,8 @@ export function DualQueryBar({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const mongoTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const lastTranslatedMongoRef = useRef<string>('');
-  const lastTranslatedPickRef = useRef<string>('');
+  const mongoEditedRef = useRef(false);
+  const pickEditedRef = useRef(false);
 
   const bridgeAvailable =
     bridgeClient !== null && bridgeClient.status === 'connected';
@@ -506,8 +506,6 @@ export function DualQueryBar({
         if (source === 'pick') {
           const filterStr = JSON.stringify(result.mongodb_filter, null, 2);
           setMongoFilter(filterStr);
-          lastTranslatedPickRef.current = query;
-          lastTranslatedMongoRef.current = filterStr;
           // Auto-expand if translated content is long (>3 lines)
           if (filterStr.split('\n').length > 3) {
             setMongoExpanded(true);
@@ -516,8 +514,6 @@ export function DualQueryBar({
           setTimeout(autoResizeMongoTextarea, 0);
         } else {
           setPickQuery(result.pick_query || '');
-          lastTranslatedMongoRef.current = query;
-          lastTranslatedPickRef.current = result.pick_query || '';
         }
 
         lastSortRef.current = result.mongodb_sort ?? null;
@@ -555,6 +551,7 @@ export function DualQueryBar({
       setMongoFilter(value);
       setActiveSource('mongodb');
       setError(null);
+      mongoEditedRef.current = true;
       autoResizeMongoTextarea();
     },
     [autoResizeMongoTextarea]
@@ -564,9 +561,9 @@ export function DualQueryBar({
     if (
       activeSource === 'mongodb' &&
       bridgeAvailable &&
-      mongoFilter !== lastTranslatedMongoRef.current
+      mongoEditedRef.current
     ) {
-      lastTranslatedMongoRef.current = mongoFilter;
+      mongoEditedRef.current = false;
       debouncedTranslate('mongodb', mongoFilter);
     }
   }, [activeSource, bridgeAvailable, debouncedTranslate, mongoFilter]);
@@ -608,17 +605,14 @@ export function DualQueryBar({
       setPickQuery(value);
       setActiveSource('pick');
       setError(null);
+      pickEditedRef.current = true;
     },
     []
   );
 
   const handlePickBlur = useCallback(() => {
-    if (
-      activeSource === 'pick' &&
-      bridgeAvailable &&
-      pickQuery !== lastTranslatedPickRef.current
-    ) {
-      lastTranslatedPickRef.current = pickQuery;
+    if (activeSource === 'pick' && bridgeAvailable && pickEditedRef.current) {
+      pickEditedRef.current = false;
       debouncedTranslate('pick', pickQuery);
     }
   }, [activeSource, bridgeAvailable, debouncedTranslate, pickQuery]);

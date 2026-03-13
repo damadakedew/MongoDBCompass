@@ -1,4 +1,10 @@
-import React, { useContext, useMemo } from 'react';
+import React, {
+  useContext,
+  useMemo,
+  useCallback,
+  useState,
+  useRef,
+} from 'react';
 import HadronDocument from 'hadron-document';
 import type { EditableDocumentProps } from './editable-document';
 import EditableDocument from './editable-document';
@@ -9,6 +15,8 @@ import {
   isMGData,
   DocumentViewToggle,
   useMVCollection,
+  isProgramCollection,
+  useBridgeClient,
 } from '@mongodb-js/compass-multivalue'; // MVCompass
 import { ProgramEditorContext } from './document-list'; // MVCompass
 
@@ -49,8 +57,41 @@ const Document = (props: DocumentProps) => {
     return _doc as Record<string, unknown>;
   }, [_doc]);
 
-  const { dictFields } = useMVCollection(); // MVCompass: DICT data from context
+  const {
+    dictFields,
+    database: mvDatabase,
+    collection: mvCollection,
+  } = useMVCollection(); // MVCompass
   const onViewSource = useContext(ProgramEditorContext); // MVCompass: program editor
+  const bridgeClient = useBridgeClient(); // MVCompass: for program save
+  const isProgram = mvCollection ? isProgramCollection(mvCollection) : false;
+
+  // MVCompass: save source callback for program collections (bridge document.write)
+  const handleSaveSource = useCallback(
+    async (itemId: string, sourceText: string) => {
+      if (!bridgeClient || bridgeClient.status !== 'connected') {
+        throw new Error('Bridge not connected');
+      }
+      const lines = sourceText.split('\n');
+      await bridgeClient.request('document.write', {
+        database: mvDatabase || '',
+        collection: mvCollection || '',
+        item_id: itemId,
+        mgdata: lines,
+      });
+    },
+    [bridgeClient, mvDatabase, mvCollection]
+  );
+
+  // MVCompass: dirty state + save ref for program source editor → footer wiring
+  const [sourceDirty, setSourceDirty] = useState(false);
+  const saveSourceRef = useRef<(() => Promise<void>) | null>(null);
+
+  const handleProgramSave = useCallback(async () => {
+    if (saveSourceRef.current) {
+      await saveSourceRef.current();
+    }
+  }, []);
 
   // Build bodyOverride for MGData documents — passed into stock wrappers
   // so action buttons (edit/copy/clone/delete/expand) remain functional
@@ -63,9 +104,12 @@ const Document = (props: DocumentProps) => {
         onViewSource={
           onViewSource ? () => onViewSource(String(rawDoc._id)) : undefined
         }
+        onSaveSource={isProgram ? handleSaveSource : undefined}
+        onSourceDirtyChange={isProgram ? setSourceDirty : undefined}
+        saveRef={isProgram ? saveSourceRef : undefined}
       />
     );
-  }, [rawDoc, dictFields, onViewSource]);
+  }, [rawDoc, dictFields, onViewSource, isProgram, handleSaveSource]);
   // MVCompass: end multivalue body override
 
   if (editable && isTimeSeries) {
@@ -91,6 +135,9 @@ const Document = (props: DocumentProps) => {
         onUpdateQuery={onUpdateQuery}
         query={query}
         bodyOverride={mvBodyOverride}
+        isProgramCollection={isProgram}
+        sourceDirty={sourceDirty}
+        onProgramSave={handleProgramSave}
       />
     );
   }

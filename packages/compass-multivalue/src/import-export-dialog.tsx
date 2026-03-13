@@ -361,6 +361,9 @@ export function ImportExportDialog({
   const [dumpDict, setDumpDict] = useState(true);
   const [dumpData, setDumpData] = useState(true);
 
+  // T-DUMP confirmation
+  const [showConfirm, setShowConfirm] = useState(false);
+
   // CSV export options
   const [dictFields, setDictFields] = useState<DictField[]>([]);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
@@ -514,7 +517,7 @@ export function ImportExportDialog({
         )}
       >
         <span>
-          Import / Export — {database}.{collection}
+          TDUMP / TLOAD — {database}.{collection}
         </span>
         <button
           className={cx(
@@ -547,7 +550,7 @@ export function ImportExportDialog({
             setResult(null);
           }}
         >
-          Import (T-LOAD)
+          T-LOAD (Import)
         </button>
         <button
           className={cx(
@@ -562,7 +565,7 @@ export function ImportExportDialog({
             setResult(null);
           }}
         >
-          Export
+          T-DUMP (Export)
         </button>
       </div>
 
@@ -663,7 +666,7 @@ export function ImportExportDialog({
                       type="checkbox"
                       checked={dumpDict}
                       onChange={(e) => setDumpDict(e.target.checked)}
-                      disabled={isRunning}
+                      disabled={isRunning || !dumpData}
                       data-testid="tdump-dict-checkbox"
                     />
                     DICT
@@ -673,7 +676,7 @@ export function ImportExportDialog({
                       type="checkbox"
                       checked={dumpData}
                       onChange={(e) => setDumpData(e.target.checked)}
-                      disabled={isRunning}
+                      disabled={isRunning || !dumpDict}
                       data-testid="tdump-data-checkbox"
                     />
                     DATA
@@ -774,13 +777,74 @@ export function ImportExportDialog({
               Server-side file path for export output. Exports {database}.
               {collection}.
             </div>
+            {/* T-DUMP confirmation */}
+            {exportFormat === 'tdump' && showConfirm && (
+              <div
+                className={cx(
+                  resultStyles,
+                  darkMode ? darkSuccessStyles : lightSuccessStyles
+                )}
+                data-testid="tdump-confirm"
+              >
+                <div style={{ marginBottom: spacing[200] }}>
+                  Export {database}.{collection} to {exportPath.trim()}?
+                  {dumpDict && dumpData
+                    ? ' (DICT + DATA)'
+                    : dumpDict
+                    ? ' (DICT only)'
+                    : ' (DATA only)'}
+                </div>
+                <div style={{ display: 'flex', gap: spacing[200] }}>
+                  <button
+                    className={cx(
+                      actionButtonStyles,
+                      darkMode
+                        ? darkActionButtonStyles
+                        : lightActionButtonStyles
+                    )}
+                    onClick={() => {
+                      setShowConfirm(false);
+                      handleExport();
+                    }}
+                    data-testid="tdump-confirm-yes"
+                  >
+                    Yes, Export
+                  </button>
+                  <button
+                    className={cx(actionButtonStyles)}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: `1px solid ${
+                        darkMode ? palette.gray.dark2 : palette.gray.light1
+                      }`,
+                      color: darkMode
+                        ? palette.gray.light1
+                        : palette.gray.dark1,
+                    }}
+                    onClick={() => setShowConfirm(false)}
+                    data-testid="tdump-confirm-no"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             <button
               className={cx(
                 actionButtonStyles,
                 darkMode ? darkActionButtonStyles : lightActionButtonStyles
               )}
-              onClick={handleExport}
-              disabled={isRunning || !bridgeAvailable || !exportPath.trim()}
+              onClick={
+                exportFormat === 'tdump' && !showConfirm
+                  ? () => setShowConfirm(true)
+                  : handleExport
+              }
+              disabled={
+                isRunning ||
+                !bridgeAvailable ||
+                !exportPath.trim() ||
+                (exportFormat === 'tdump' && showConfirm)
+              }
               data-testid="export-button"
             >
               {isRunning ? 'Exporting...' : 'Export'}

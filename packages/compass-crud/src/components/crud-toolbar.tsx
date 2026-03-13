@@ -490,13 +490,13 @@ const CrudToolbar: React.FunctionComponent<CrudToolbarProps> = ({
           {isMVCollection && onImportExportClick && (
             <Button
               onClick={onImportExportClick}
-              title="Import or export data"
-              aria-label="Import or export data"
+              title="TDump/TLoad"
+              aria-label="TDump/TLoad"
               data-testid="crud-import-export-button"
               size="xsmall"
               leftGlyph={<Icon glyph="Import" />}
             >
-              Import/Export
+              TDump/TLoad
             </Button>
           )}
           {/* MVCompass: Program editor for Pick Basic source collections */}

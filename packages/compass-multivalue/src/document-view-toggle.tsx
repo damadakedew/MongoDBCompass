@@ -46,6 +46,15 @@ export interface DocumentViewToggleProps {
 
   /** When set, this is a program collection — show Source tab instead of Attribute */
   onViewSource?: () => void;
+
+  /** When set, source view is editable and Save calls this with the new source text */
+  onSaveSource?: (itemId: string, sourceText: string) => Promise<void>;
+
+  /** Notifies parent when source dirty state changes (for footer Update button) */
+  onSourceDirtyChange?: (dirty: boolean) => void;
+
+  /** Ref that parent can call to trigger save from footer Update button */
+  saveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -159,17 +168,61 @@ const cmLightTheme = EditorView.theme({
   },
 });
 
+// ── Save button styles ──────────────────────────────────────────────
+
+const saveBarStyles = css({
+  display: 'flex',
+  alignItems: 'center',
+  gap: spacing[200],
+  padding: `${spacing[100]}px 0`,
+});
+
+const saveButtonStyles = css({
+  fontFamily: '"Source Code Pro", Menlo, Monaco, Consolas, monospace',
+  fontSize: '12px',
+  fontWeight: 600,
+  padding: `${spacing[100]}px ${spacing[300]}px`,
+  borderRadius: '4px',
+  border: 'none',
+  cursor: 'pointer',
+});
+
+const saveFeedbackStyles = css({
+  fontSize: '12px',
+  fontFamily: '"Source Code Pro", Menlo, Monaco, Consolas, monospace',
+});
+
 // ── Inline Source Viewer ────────────────────────────────────────────
 
 function InlineSourceViewer({
   source,
   darkMode,
+  editable,
+  onSave,
+  onDirtyChange,
+  saveRef,
 }: {
   source: string;
   darkMode: boolean;
+  editable?: boolean;
+  onSave?: (text: string) => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
+  saveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }) {
   const editorParentRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
+  const [dirty, setDirtyInternal] = useState(false);
+  const setDirty = useCallback(
+    (value: boolean) => {
+      setDirtyInternal(value);
+      onDirtyChange?.(value);
+    },
+    [onDirtyChange]
+  );
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(
+    null
+  );
 
   useEffect(() => {
     if (!editorParentRef.current || !source) return;
@@ -179,21 +232,36 @@ function InlineSourceViewer({
       editorViewRef.current = null;
     }
 
+    const extensions = [
+      lineNumbers(),
+      foldGutter(),
+      history(),
+      drawSelection(),
+      bracketMatching(),
+      syntaxHighlighting(defaultHighlightStyle),
+      pickBasicLanguage,
+      darkMode ? cmDarkTheme : cmLightTheme,
+      keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
+    ];
+
+    if (!editable) {
+      extensions.push(EditorState.readOnly.of(true));
+      extensions.push(EditorView.editable.of(false));
+    } else {
+      // Track changes for dirty state
+      extensions.push(
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            setDirty(true);
+            setFeedback(null);
+          }
+        })
+      );
+    }
+
     const state = EditorState.create({
       doc: source,
-      extensions: [
-        lineNumbers(),
-        foldGutter(),
-        history(),
-        drawSelection(),
-        bracketMatching(),
-        syntaxHighlighting(defaultHighlightStyle),
-        pickBasicLanguage,
-        EditorState.readOnly.of(true),
-        EditorView.editable.of(false),
-        darkMode ? cmDarkTheme : cmLightTheme,
-        keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
-      ],
+      extensions,
     });
 
     editorViewRef.current = new EditorView({
@@ -201,20 +269,61 @@ function InlineSourceViewer({
       parent: editorParentRef.current,
     });
 
+    setDirty(false);
+    setFeedback(null);
+
     return () => {
       if (editorViewRef.current) {
         editorViewRef.current.destroy();
         editorViewRef.current = null;
       }
     };
-  }, [source, darkMode]);
+  }, [source, darkMode, editable]);
+
+  const handleSave = useCallback(async () => {
+    if (!editorViewRef.current || !onSave) return;
+    const text = editorViewRef.current.state.doc.toString();
+    setSaving(true);
+    setFeedback(null);
+    try {
+      await onSave(text);
+      setDirty(false);
+      setFeedback({ ok: true, msg: 'Saved' });
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (err: any) {
+      setFeedback({ ok: false, msg: err.message || 'Save failed' });
+    } finally {
+      setSaving(false);
+    }
+  }, [onSave]);
+
+  // Expose save function to parent via ref (for footer Update button)
+  useEffect(() => {
+    if (saveRef) {
+      saveRef.current = handleSave;
+      return () => {
+        saveRef.current = null;
+      };
+    }
+  }, [saveRef, handleSave]);
 
   return (
-    <div
-      ref={editorParentRef}
-      className={sourceContainerStyles}
-      data-testid="inline-source-view"
-    />
+    <div data-testid="inline-source-view">
+      {feedback && (
+        <div className={saveBarStyles}>
+          <span
+            className={saveFeedbackStyles}
+            style={{
+              color: feedback.ok ? palette.green.base : palette.red.base,
+            }}
+            data-testid="source-save-feedback"
+          >
+            {feedback.msg}
+          </span>
+        </div>
+      )}
+      <div ref={editorParentRef} className={sourceContainerStyles} />
+    </div>
   );
 }
 
@@ -226,6 +335,9 @@ export function DocumentViewToggle({
   config,
   onAttributeClick,
   onViewSource,
+  onSaveSource,
+  onSourceDirtyChange,
+  saveRef,
 }: DocumentViewToggleProps) {
   const darkMode = useDarkMode();
   const hasMGData = isMGData(doc);
@@ -235,10 +347,32 @@ export function DocumentViewToggle({
   const [mode, setMode] = useState<ViewMode>(
     isProgram ? 'source' : hasMGData ? 'attribute' : 'json'
   );
+  // Track dirty state from InlineSourceViewer for tab-switch blocking + footer Update
+  const [sourceDirty, setSourceDirty] = useState(false);
+  const [tabBlockMessage, setTabBlockMessage] = useState<string | null>(null);
 
-  const handleModeChange = useCallback((value: string) => {
-    setMode(value as ViewMode);
-  }, []);
+  // Notify parent of dirty state changes
+  const handleDirtyChange = useCallback(
+    (dirty: boolean) => {
+      setSourceDirty(dirty);
+      onSourceDirtyChange?.(dirty);
+    },
+    [onSourceDirtyChange]
+  );
+
+  const handleModeChange = useCallback(
+    (value: string) => {
+      if (sourceDirty && mode === 'source' && value !== 'source') {
+        // Block tab switch while source has unsaved edits
+        setTabBlockMessage('Save or cancel your changes first');
+        setTimeout(() => setTabBlockMessage(null), 3000);
+        return;
+      }
+      setTabBlockMessage(null);
+      setMode(value as ViewMode);
+    },
+    [sourceDirty, mode]
+  );
 
   // Build source text from MGData (only for program collections)
   const sourceText =
@@ -298,7 +432,31 @@ export function DocumentViewToggle({
         />
       )}
       {mode === 'source' && (
-        <InlineSourceViewer source={sourceText} darkMode={darkMode} />
+        <InlineSourceViewer
+          source={sourceText}
+          darkMode={darkMode}
+          editable={!!onSaveSource}
+          onSave={
+            onSaveSource
+              ? (text: string) => onSaveSource(String(doc._id), text)
+              : undefined
+          }
+          onDirtyChange={handleDirtyChange}
+          saveRef={saveRef}
+        />
+      )}
+      {tabBlockMessage && (
+        <div
+          style={{
+            color: palette.yellow.base,
+            fontSize: '12px',
+            padding: '4px 8px',
+            fontStyle: 'italic',
+          }}
+          data-testid="tab-block-message"
+        >
+          {tabBlockMessage}
+        </div>
       )}
     </div>
   );

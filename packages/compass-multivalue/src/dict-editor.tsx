@@ -115,12 +115,13 @@ const fieldListScrollStyles = css({
 });
 
 const fieldItemStyles = css({
-  padding: `${spacing[100]}px ${spacing[300]}px`,
+  padding: `2px ${spacing[300]}px`,
   cursor: 'pointer',
   borderBottom: '1px solid',
-  display: 'flex',
-  justifyContent: 'space-between',
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
   alignItems: 'center',
+  lineHeight: '1.4',
 });
 
 const lightFieldItemStyles = css({
@@ -791,6 +792,24 @@ export function DictEditor({
           </button>
         </div>
 
+        {/* Column labels */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            padding: `2px ${spacing[300]}px`,
+            fontSize: '11px',
+            fontWeight: 600,
+            opacity: 0.6,
+            borderBottom: '1px solid',
+            borderBottomColor: darkMode
+              ? palette.gray.dark2
+              : palette.gray.light2,
+          }}
+        >
+          <span>Item ID</span>
+          <span>Heading</span>
+        </div>
         <div className={fieldListScrollStyles} data-testid="field-list">
           {isLoading && (
             <div className={loadingStyles} data-testid="field-list-loading">
@@ -830,9 +849,7 @@ export function DictEditor({
               data-testid={`field-item-${field.item_id}`}
             >
               <span className={fieldItemIdStyles}>{field.item_id}</span>
-              <span className={fieldItemMetaStyles}>
-                #{field.attribute_number} · {field.header}
-              </span>
+              <span className={fieldItemMetaStyles}>{field.header}</span>
             </div>
           ))}
         </div>

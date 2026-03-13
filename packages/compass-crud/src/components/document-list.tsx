@@ -855,6 +855,7 @@ const dictEditorModalStyles = css({
 });
 
 const dictEditorModalContentStyles = css({
+  position: 'relative',
   width: '800px',
   maxWidth: '90vw',
   height: '600px',
@@ -874,13 +875,35 @@ const DictEditorModal: React.FunctionComponent<{
   const bridge = useBridgeClient();
 
   return (
-    <div
-      className={dictEditorModalStyles}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <div className={dictEditorModalStyles}>
       <div className={dictEditorModalContentStyles}>
+        {/* MVCompass: X close button for DICT modal */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            padding: '4px 8px 0',
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            zIndex: 1,
+          }}
+        >
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '18px',
+              padding: '4px 8px',
+              color: 'inherit',
+            }}
+            onClick={onClose}
+            data-testid="dict-modal-close"
+          >
+            ×
+          </button>
+        </div>
         <DictEditor
           database={database}
           collection={collection}
@@ -914,13 +937,38 @@ const TerminalModal: React.FunctionComponent<{
   const bridge = useBridgeClient();
 
   return (
-    <div
-      className={dictEditorModalStyles}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className={terminalModalContentStyles}>
+    <div className={dictEditorModalStyles}>
+      <div
+        className={terminalModalContentStyles}
+        style={{ position: 'relative' }}
+      >
+        {/* MVCompass: X close button for Terminal modal */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            padding: '4px 8px 0',
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            zIndex: 1,
+          }}
+        >
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '18px',
+              padding: '4px 8px',
+              color: 'inherit',
+            }}
+            onClick={onClose}
+            data-testid="terminal-modal-close"
+          >
+            ×
+          </button>
+        </div>
         <TerminalEmulator
           database={database}
           bridgeClient={bridge}

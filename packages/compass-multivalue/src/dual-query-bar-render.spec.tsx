@@ -46,7 +46,7 @@ describe('DualQueryBar Component Rendering', function () {
     expect(mongoInput.hasAttribute('disabled')).to.equal(false);
   });
 
-  it('Apply button renders', function () {
+  it('does not render Apply button (Enter key triggers action)', function () {
     render(
       <DualQueryBar
         database="PROD"
@@ -55,7 +55,7 @@ describe('DualQueryBar Component Rendering', function () {
         bridgeClient={null}
       />
     );
-    expect(screen.getByTestId('apply-query-button')).to.exist;
+    expect(screen.queryByTestId('apply-query-button')).to.be.null;
   });
 
   it('renders with initialFilter populated', function () {

@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+  useEffect,
+} from 'react';
 import { css, cx } from '@leafygreen-ui/emotion';
 import { palette } from '@leafygreen-ui/palette';
 import { spacing } from '@leafygreen-ui/tokens';
@@ -196,6 +202,14 @@ const statusStyles = css({
   gap: spacing[100],
 });
 
+const pulseStyles = css({
+  animation: 'dqb-pulse 1.2s ease-in-out infinite',
+  '@keyframes dqb-pulse': {
+    '0%, 100%': { opacity: 1 },
+    '50%': { opacity: 0.4 },
+  },
+});
+
 const errorStyles = css({
   fontSize: '12px',
   marginLeft: `calc(80px + ${spacing[200]}px)`,
@@ -327,15 +341,54 @@ const emptyHistoryStyles = css({
   opacity: 0.6,
 });
 
+const expandToggleStyles = css({
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  fontFamily: '"Source Code Pro", Menlo, Monaco, Consolas, monospace',
+  fontSize: '11px',
+  padding: `2px ${spacing[100]}px`,
+  borderRadius: '3px',
+  flexShrink: 0,
+  alignSelf: 'flex-start',
+  marginTop: '4px',
+});
+
+const lightExpandToggleStyles = css({
+  color: palette.gray.dark1,
+  ':hover': { color: palette.gray.dark3, backgroundColor: palette.gray.light3 },
+});
+
+const darkExpandToggleStyles = css({
+  color: palette.gray.light1,
+  ':hover': { color: palette.white, backgroundColor: palette.gray.dark3 },
+});
+
 const listOutputContainerStyles = css({
   marginTop: spacing[200],
-  height: '60vh',
+  maxHeight: 'calc(100vh - 400px)',
+  overflow: 'auto',
 });
 
 // ── Constants ──────────────────────────────────────────────────────
 
 const DEBOUNCE_MS = 500;
 const MAX_HISTORY = 10;
+
+// Pick query prefix detection — easy to extend: add new prefixes here
+const LIST_PREFIXES = ['LIST', 'SORT', 'COUNT'];
+const FILTER_PREFIXES = ['SELECT', 'SSELECT', 'QSELECT'];
+
+function detectQueryIntent(
+  query: string
+): 'list' | 'filter' | 'none' | 'mongo' {
+  const trimmed = query.trim();
+  if (!trimmed) return 'none';
+  const firstWord = trimmed.split(/\s+/)[0].toUpperCase();
+  if (LIST_PREFIXES.includes(firstWord)) return 'list';
+  if (FILTER_PREFIXES.includes(firstWord)) return 'filter';
+  return 'mongo'; // unrecognized → default to MongoDB filter behavior
+}
 
 // ── Component ──────────────────────────────────────────────────────
 
@@ -374,10 +427,17 @@ export function DualQueryBar({
   const [listPage, setListPage] = useState(1);
   const [listHasMore, setListHasMore] = useState(false);
 
+  // MongoDB filter expand/collapse
+  const [mongoExpanded, setMongoExpanded] = useState(false);
+  const COLLAPSED_HEIGHT = 32; // single row
+  const EXPANDED_MAX_HEIGHT = 200;
+
   // Refs
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const mongoTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastTranslatedMongoRef = useRef<string>('');
+  const lastTranslatedPickRef = useRef<string>('');
 
   const bridgeAvailable =
     bridgeClient !== null && bridgeClient.status === 'connected';
@@ -386,10 +446,19 @@ export function DualQueryBar({
   const autoResizeMongoTextarea = useCallback(() => {
     const el = mongoTextareaRef.current;
     if (el) {
+      if (!mongoExpanded) {
+        el.style.height = COLLAPSED_HEIGHT + 'px';
+        return;
+      }
       el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      el.style.height = Math.min(el.scrollHeight, EXPANDED_MAX_HEIGHT) + 'px';
     }
-  }, []);
+  }, [mongoExpanded]);
+
+  // Re-apply height when expand/collapse toggles
+  useEffect(() => {
+    autoResizeMongoTextarea();
+  }, [mongoExpanded, autoResizeMongoTextarea]);
 
   // Sort from last translation (kept alongside the filter)
   const lastSortRef = useRef<Record<string, unknown> | null>(null);
@@ -435,11 +504,20 @@ export function DualQueryBar({
         const result = response.result as unknown as TranslationResult;
 
         if (source === 'pick') {
-          setMongoFilter(JSON.stringify(result.mongodb_filter, null, 2));
+          const filterStr = JSON.stringify(result.mongodb_filter, null, 2);
+          setMongoFilter(filterStr);
+          lastTranslatedPickRef.current = query;
+          lastTranslatedMongoRef.current = filterStr;
+          // Auto-expand if translated content is long (>3 lines)
+          if (filterStr.split('\n').length > 3) {
+            setMongoExpanded(true);
+          }
           // Auto-resize after programmatic filter update
           setTimeout(autoResizeMongoTextarea, 0);
         } else {
           setPickQuery(result.pick_query || '');
+          lastTranslatedMongoRef.current = query;
+          lastTranslatedPickRef.current = result.pick_query || '';
         }
 
         lastSortRef.current = result.mongodb_sort ?? null;
@@ -483,7 +561,12 @@ export function DualQueryBar({
   );
 
   const handleMongoBlur = useCallback(() => {
-    if (activeSource === 'mongodb' && bridgeAvailable) {
+    if (
+      activeSource === 'mongodb' &&
+      bridgeAvailable &&
+      mongoFilter !== lastTranslatedMongoRef.current
+    ) {
+      lastTranslatedMongoRef.current = mongoFilter;
       debouncedTranslate('mongodb', mongoFilter);
     }
   }, [activeSource, bridgeAvailable, debouncedTranslate, mongoFilter]);
@@ -499,6 +582,8 @@ export function DualQueryBar({
         if (bridgeAvailable) {
           translate('mongodb', mongoFilter);
         }
+        // Close any open LIST report — user is applying a filter
+        setShowReport(false);
         // Parse and apply the MongoDB filter directly
         const filterText = mongoFilter.trim();
         if (!filterText) {
@@ -528,67 +613,18 @@ export function DualQueryBar({
   );
 
   const handlePickBlur = useCallback(() => {
-    if (activeSource === 'pick' && bridgeAvailable) {
+    if (
+      activeSource === 'pick' &&
+      bridgeAvailable &&
+      pickQuery !== lastTranslatedPickRef.current
+    ) {
+      lastTranslatedPickRef.current = pickQuery;
       debouncedTranslate('pick', pickQuery);
     }
   }, [activeSource, bridgeAvailable, debouncedTranslate, pickQuery]);
 
-  const handlePickKeyDown = useCallback(
-    async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (bridgeAvailable) {
-          // Translate, then auto-apply+find in one keystroke
-          const result = await translate('pick', pickQuery);
-          if (result) {
-            const filter = result.mongodb_filter ?? {};
-            const sort = result.mongodb_sort ?? undefined;
-            onApplyQuery(filter, sort);
-          }
-        }
-      }
-    },
-    [bridgeAvailable, translate, pickQuery, onApplyQuery]
-  );
-
-  // ── Apply ──────────────────────────────────────────────────────
-
-  const handleApply = useCallback(() => {
-    const filterText = mongoFilter.trim();
-    let parsed: Record<string, unknown>;
-
-    if (!filterText) {
-      parsed = {};
-    } else {
-      try {
-        parsed = JSON.parse(filterText);
-      } catch {
-        setError('Invalid JSON in MongoDB filter');
-        return;
-      }
-    }
-
-    const sort = lastSortRef.current ?? undefined;
-    onApplyQuery(parsed, sort);
-
-    // Add to history
-    const entry: QueryHistoryEntry = {
-      pickQuery: pickQuery,
-      mongoFilter: filterText || '{}',
-      mongoSort: lastSortRef.current,
-      fieldsUsed: [...fieldsUsed],
-      timestamp: Date.now(),
-    };
-
-    setHistory((prev) => {
-      // Deduplicate by mongo filter
-      const deduped = prev.filter((h) => h.mongoFilter !== entry.mongoFilter);
-      const updated = [entry, ...deduped];
-      return updated.slice(0, MAX_HISTORY);
-    });
-  }, [mongoFilter, pickQuery, fieldsUsed, onApplyQuery]);
-
   // ── LIST output ──────────────────────────────────────────────
+  // NOTE: handleList must be defined before handlePickKeyDown which depends on it
 
   const PAGE_SIZE = 50;
 
@@ -651,6 +687,80 @@ export function DualQueryBar({
     [bridgeClient, pickQuery, database, collection]
   );
 
+  const handlePickKeyDown = useCallback(
+    async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const intent = detectQueryIntent(pickQuery);
+        if (intent === 'none') return; // empty query → do nothing
+
+        if (intent === 'list') {
+          // LIST/SORT/COUNT → execute as LIST report
+          handleList(0);
+        } else if (intent === 'filter' && bridgeAvailable) {
+          // SELECT/SSELECT/QSELECT → close any open LIST report before applying filter
+          setShowReport(false);
+          const result = await translate('pick', pickQuery);
+          if (result) {
+            const filter = result.mongodb_filter ?? {};
+            const sort = result.mongodb_sort ?? undefined;
+            onApplyQuery(filter, sort);
+          }
+        } else if (intent === 'mongo') {
+          // Unrecognized → default to MongoDB filter behavior (apply as-is)
+          setShowReport(false);
+          if (bridgeAvailable) {
+            const result = await translate('pick', pickQuery);
+            if (result) {
+              const filter = result.mongodb_filter ?? {};
+              const sort = result.mongodb_sort ?? undefined;
+              onApplyQuery(filter, sort);
+            }
+          }
+        }
+      }
+    },
+    [bridgeAvailable, translate, pickQuery, onApplyQuery, handleList]
+  );
+
+  // ── Apply ──────────────────────────────────────────────────────
+
+  const handleApply = useCallback(() => {
+    setShowReport(false); // Clear LIST results when applying filter
+    const filterText = mongoFilter.trim();
+    let parsed: Record<string, unknown>;
+
+    if (!filterText) {
+      parsed = {};
+    } else {
+      try {
+        parsed = JSON.parse(filterText);
+      } catch {
+        setError('Invalid JSON in MongoDB filter');
+        return;
+      }
+    }
+
+    const sort = lastSortRef.current ?? undefined;
+    onApplyQuery(parsed, sort);
+
+    // Add to history
+    const entry: QueryHistoryEntry = {
+      pickQuery: pickQuery,
+      mongoFilter: filterText || '{}',
+      mongoSort: lastSortRef.current,
+      fieldsUsed: [...fieldsUsed],
+      timestamp: Date.now(),
+    };
+
+    setHistory((prev) => {
+      // Deduplicate by mongo filter
+      const deduped = prev.filter((h) => h.mongoFilter !== entry.mongoFilter);
+      const updated = [entry, ...deduped];
+      return updated.slice(0, MAX_HISTORY);
+    });
+  }, [mongoFilter, pickQuery, fieldsUsed, onApplyQuery]);
+
   const handleNextPage = useCallback(() => {
     const nextSkip = listPage * PAGE_SIZE;
     handleList(nextSkip);
@@ -672,6 +782,7 @@ export function DualQueryBar({
       setTranslationWarnings([]);
       setError(null);
       setShowHistory(false);
+      setShowReport(false); // Clear LIST results when replaying history
 
       // Apply immediately
       let parsed: Record<string, unknown>;
@@ -709,6 +820,11 @@ export function DualQueryBar({
             inputBaseStyles,
             darkMode ? darkInputStyles : lightInputStyles
           )}
+          style={
+            !mongoExpanded
+              ? { height: COLLAPSED_HEIGHT, overflow: 'hidden', resize: 'none' }
+              : undefined
+          }
           value={mongoFilter}
           ref={mongoTextareaRef}
           onChange={handleMongoChange}
@@ -718,6 +834,19 @@ export function DualQueryBar({
           rows={1}
           data-testid="mongo-filter-input"
         />
+        {mongoFilter.split('\n').length > 3 && (
+          <button
+            className={cx(
+              expandToggleStyles,
+              darkMode ? darkExpandToggleStyles : lightExpandToggleStyles
+            )}
+            onClick={() => setMongoExpanded((prev) => !prev)}
+            data-testid="mongo-expand-toggle"
+            title={mongoExpanded ? 'Collapse filter' : 'Expand filter'}
+          >
+            {mongoExpanded ? '▲' : '▼'}
+          </button>
+        )}
       </div>
 
       {/* MultiValue query row */}
@@ -769,31 +898,15 @@ export function DualQueryBar({
         )}
       </div>
 
-      {/* Action row */}
+      {/* Action row — LIST/APPLY removed, Enter auto-detects intent */}
       <div className={buttonRowStyles}>
-        <button
-          className={cx(
-            applyButtonStyles,
-            darkMode ? darkApplyButtonStyles : lightApplyButtonStyles
-          )}
-          onClick={handleApply}
-          data-testid="apply-query-button"
-        >
-          Apply
-        </button>
-
-        {bridgeAvailable && (
-          <button
-            className={cx(
-              historyButtonStyles,
-              darkMode ? darkHistoryButtonStyles : lightHistoryButtonStyles
-            )}
-            onClick={() => handleList(0)}
-            disabled={isListing}
-            data-testid="list-query-button"
+        {isListing && (
+          <span
+            className={cx(statusStyles, pulseStyles)}
+            data-testid="listing-indicator"
           >
-            {isListing ? 'Running...' : 'LIST'}
-          </button>
+            Running...
+          </span>
         )}
 
         {history.length > 0 && (

@@ -24,6 +24,12 @@ export type EditableDocumentProps = {
   query?: Record<string, unknown>;
   // MVCompass: optional body override for multivalue attribute/source views
   bodyOverride?: React.ReactNode;
+  // MVCompass: program collections keep bodyOverride visible during edit
+  isProgramCollection?: boolean;
+  // MVCompass: source editor dirty state (drives footer Update button for program collections)
+  sourceDirty?: boolean;
+  // MVCompass: save handler triggered by footer Update for program collections
+  onProgramSave?: () => Promise<void>;
 };
 
 type EditableDocumentState = {
@@ -146,6 +152,14 @@ class EditableDocument extends React.Component<
    */
   handleCancel = () => {
     if (this.state.editing) {
+      // MVCompass: confirm discard if program source has unsaved edits
+      if (this.props.isProgramCollection && this.props.sourceDirty) {
+        if (!window.confirm('You have unsaved changes. Discard them?')) {
+          // Re-enter editing on next tick (doc.cancel() already fired from footer)
+          setTimeout(() => this.props.doc.startEditing(), 0);
+          return;
+        }
+      }
       this.props.doc.finishEditing();
     } else if (this.state.deleting) {
       this.props.doc.finishDeletion();
@@ -221,10 +235,21 @@ class EditableDocument extends React.Component<
    * @returns {Component} The actions component.
    */
   renderActions() {
-    if (!this.state.editing && !this.state.deleting) {
+    // MVCompass: program collections keep action buttons visible during edit
+    // (source editor handles save — user still needs copy/clone/delete/expand)
+    if (
+      (!this.state.editing && !this.state.deleting) ||
+      (this.props.isProgramCollection &&
+        this.state.editing &&
+        !this.state.deleting)
+    ) {
       return (
         <DocumentList.DocumentActionsGroup
-          onEdit={this.handleStartEditing.bind(this)}
+          onEdit={
+            this.props.isProgramCollection && this.state.editing
+              ? undefined // already editing — hide edit pencil
+              : this.handleStartEditing.bind(this)
+          }
           onCopy={this.handleCopy.bind(this)}
           onRemove={this.handleDelete.bind(this)}
           onClone={this.handleClone.bind(this)}
@@ -265,13 +290,20 @@ class EditableDocument extends React.Component<
    * @returns {Component} The footer component.
    */
   renderFooter() {
+    const isProgramEdit =
+      this.props.isProgramCollection && this.props.bodyOverride;
     return (
       <DocumentList.DocumentEditActionsFooter
         doc={this.props.doc}
         editing={this.state.editing}
         deleting={this.state.deleting}
+        // MVCompass: for program collections, override modified state from source editor dirty tracking
+        modified={isProgramEdit ? this.props.sourceDirty : undefined}
         onUpdate={(force) => {
-          if (force) {
+          if (isProgramEdit && this.props.onProgramSave) {
+            // MVCompass: program collections save via bridge, not hadron document update
+            void this.props.onProgramSave();
+          } else if (force) {
             void this.props.replaceDocument?.(this.props.doc);
           } else {
             void this.props.updateDocument?.(this.props.doc);
@@ -300,9 +332,10 @@ class EditableDocument extends React.Component<
             className={documentElementsContainerStyles}
             data-testid="editable-document-elements"
           >
-            {/* MVCompass: show bodyOverride when not editing/deleting */}
+            {/* MVCompass: show bodyOverride when not editing/deleting,
+                or always for program collections (source editor handles save) */}
             {this.props.bodyOverride &&
-            !this.state.editing &&
+            (!this.state.editing || this.props.isProgramCollection) &&
             !this.state.deleting
               ? this.props.bodyOverride
               : this.renderElements()}

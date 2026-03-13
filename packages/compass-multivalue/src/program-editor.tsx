@@ -299,6 +299,12 @@ export function ProgramEditor({
   const [error, setError] = useState<string | null>(null);
   const [sourceText, setSourceText] = useState('');
   const [lineCount, setLineCount] = useState(0);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
 
   // Fetch document on mount
   useEffect(() => {
@@ -370,11 +376,15 @@ export function ProgramEditor({
         bracketMatching(),
         syntaxHighlighting(defaultHighlightStyle),
         pickBasicLanguage,
-        EditorState.readOnly.of(true),
-        EditorView.editable.of(false),
         darkMode ? cmDarkTheme : cmLightTheme,
         EditorView.lineWrapping,
         keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            setDirty(true);
+            setSaveFeedback(null);
+          }
+        }),
       ],
     });
 
@@ -391,14 +401,51 @@ export function ProgramEditor({
     };
   }, [loading, error, sourceText, darkMode]);
 
-  // Handle Escape key to close
+  // Update handler — reconstruct MGData from source text and write via bridge
+  const handleUpdate = useCallback(async () => {
+    if (!editorViewRef.current) return;
+    const text = editorViewRef.current.state.doc.toString();
+    const lines = text.split('\n');
+
+    setSaving(true);
+    setSaveFeedback(null);
+    try {
+      await bridgeClient.request('document.write', {
+        database,
+        collection,
+        item_id: itemId,
+        mgdata: lines,
+      });
+      setDirty(false);
+      setSourceText(text);
+      setLineCount(lines.length);
+      setSaveFeedback({ ok: true, msg: 'Saved' });
+      setTimeout(() => setSaveFeedback(null), 3000);
+    } catch (err: any) {
+      setSaveFeedback({ ok: false, msg: err.message || 'Save failed' });
+    } finally {
+      setSaving(false);
+    }
+  }, [bridgeClient, database, collection, itemId]);
+
+  // Unified close handler — confirm if dirty, shared by Cancel, X button, and Escape
+  const handleClose = useCallback(() => {
+    if (dirty) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) {
+        return;
+      }
+    }
+    onClose();
+  }, [dirty, onClose]);
+
+  // Handle Escape key to close (uses same handler as Cancel and X)
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     },
-    [onClose]
+    [handleClose]
   );
 
   return (
@@ -444,7 +491,7 @@ export function ProgramEditor({
               closeButtonStyles,
               darkMode ? darkCloseButtonStyles : lightCloseButtonStyles
             )}
-            onClick={onClose}
+            onClick={handleClose}
             data-testid="program-editor-close"
           >
             ×
@@ -489,8 +536,64 @@ export function ProgramEditor({
         >
           <span>
             {lineCount} line{lineCount !== 1 ? 's' : ''}
+            {dirty && ' · modified'}
           </span>
-          <span>Pick Basic — Read Only</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {saveFeedback && (
+              <span
+                style={{
+                  color: saveFeedback.ok
+                    ? palette.green.base
+                    : palette.red.base,
+                  fontSize: '12px',
+                }}
+                data-testid="program-editor-save-feedback"
+              >
+                {saveFeedback.msg}
+              </span>
+            )}
+            <button
+              style={{
+                fontFamily:
+                  '"Source Code Pro", Menlo, Monaco, Consolas, monospace',
+                fontSize: '12px',
+                padding: '2px 12px',
+                borderRadius: '4px',
+                border: `1px solid ${
+                  darkMode ? palette.gray.dark1 : palette.gray.light1
+                }`,
+                backgroundColor: 'transparent',
+                color: 'inherit',
+                cursor: 'pointer',
+              }}
+              onClick={handleClose}
+              data-testid="program-editor-cancel"
+            >
+              Cancel
+            </button>
+            <button
+              style={{
+                fontFamily:
+                  '"Source Code Pro", Menlo, Monaco, Consolas, monospace',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '2px 12px',
+                borderRadius: '4px',
+                border: 'none',
+                cursor: dirty && !saving ? 'pointer' : 'default',
+                backgroundColor: dirty
+                  ? palette.green.dark2
+                  : palette.gray.dark2,
+                color: palette.white,
+                opacity: dirty && !saving ? 1 : 0.5,
+              }}
+              onClick={handleUpdate}
+              disabled={!dirty || saving}
+              data-testid="program-editor-update"
+            >
+              {saving ? 'Updating...' : 'Update'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

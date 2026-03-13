@@ -22,6 +22,8 @@ export type EditableDocumentProps = {
   showInsights?: boolean;
   onUpdateQuery?: (field: string, value: unknown) => void;
   query?: Record<string, unknown>;
+  // MVCompass: optional body override for multivalue attribute/source views
+  bodyOverride?: React.ReactNode;
 };
 
 type EditableDocumentState = {
@@ -298,7 +300,12 @@ class EditableDocument extends React.Component<
             className={documentElementsContainerStyles}
             data-testid="editable-document-elements"
           >
-            {this.renderElements()}
+            {/* MVCompass: show bodyOverride when not editing/deleting */}
+            {this.props.bodyOverride &&
+            !this.state.editing &&
+            !this.state.deleting
+              ? this.props.bodyOverride
+              : this.renderElements()}
           </div>
           {this.renderActions()}
         </div>

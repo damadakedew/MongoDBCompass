@@ -489,15 +489,32 @@ export function DualQueryBar({
   }, [activeSource, bridgeAvailable, debouncedTranslate, mongoFilter]);
 
   const handleMongoKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        // Reverse-translate to keep Pick field in sync (intentionally not awaited —
+        // the user already typed the MongoDB filter directly, so we apply it immediately
+        // below while translation updates the Pick field in the background. Do not add
+        // await here: it would delay query execution for a cosmetic sync.)
         if (bridgeAvailable) {
           translate('mongodb', mongoFilter);
         }
+        // Parse and apply the MongoDB filter directly
+        const filterText = mongoFilter.trim();
+        if (!filterText) {
+          onApplyQuery({});
+          return;
+        }
+        try {
+          const parsed = JSON.parse(filterText);
+          const sort = lastSortRef.current ?? undefined;
+          onApplyQuery(parsed, sort);
+        } catch {
+          setError('Invalid JSON in MongoDB filter');
+        }
       }
     },
-    [bridgeAvailable, translate, mongoFilter]
+    [bridgeAvailable, translate, mongoFilter, onApplyQuery]
   );
 
   const handlePickChange = useCallback(

@@ -41,7 +41,7 @@ const Document = (props: DocumentProps) => {
     return new HadronDocument(_doc as Record<string, unknown>);
   }, [_doc]);
 
-  // MVCompass: render multivalue attribute view for MGData documents
+  // MVCompass: multivalue attribute/source view as body override (not early return)
   const rawDoc = useMemo(() => {
     if (typeof _doc?.isRoot === 'function') {
       return (_doc as HadronDocument).generateObject();
@@ -52,7 +52,10 @@ const Document = (props: DocumentProps) => {
   const { dictFields } = useMVCollection(); // MVCompass: DICT data from context
   const onViewSource = useContext(ProgramEditorContext); // MVCompass: program editor
 
-  if (isMGData(rawDoc)) {
+  // Build bodyOverride for MGData documents — passed into stock wrappers
+  // so action buttons (edit/copy/clone/delete/expand) remain functional
+  const mvBodyOverride = useMemo(() => {
+    if (!isMGData(rawDoc)) return undefined;
     return (
       <DocumentViewToggle
         document={rawDoc as { _id: string; [key: string]: any }}
@@ -62,8 +65,8 @@ const Document = (props: DocumentProps) => {
         }
       />
     );
-  }
-  // MVCompass: end multivalue check
+  }, [rawDoc, dictFields, onViewSource]);
+  // MVCompass: end multivalue body override
 
   if (editable && isTimeSeries) {
     return (
@@ -75,6 +78,7 @@ const Document = (props: DocumentProps) => {
         }}
         onUpdateQuery={onUpdateQuery}
         query={query}
+        bodyOverride={mvBodyOverride}
       />
     );
   }
@@ -86,6 +90,7 @@ const Document = (props: DocumentProps) => {
         doc={doc}
         onUpdateQuery={onUpdateQuery}
         query={query}
+        bodyOverride={mvBodyOverride}
       />
     );
   }
@@ -96,6 +101,7 @@ const Document = (props: DocumentProps) => {
       copyToClipboard={copyToClipboard}
       onUpdateQuery={onUpdateQuery}
       query={query}
+      bodyOverride={mvBodyOverride}
     />
   );
 };

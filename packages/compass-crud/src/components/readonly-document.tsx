@@ -30,6 +30,8 @@ export type ReadonlyDocumentProps = {
   showInsights?: boolean;
   onUpdateQuery?: (field: string, value: unknown) => void;
   query?: Record<string, unknown>;
+  // MVCompass: optional body override for multivalue attribute/source views
+  bodyOverride?: React.ReactNode;
 };
 
 type ReadonlyDocumentState = {
@@ -172,7 +174,10 @@ class ReadonlyDocument extends React.Component<
     return (
       <div className={documentStyles} data-testid="readonly-document">
         <div className={documentContentStyles}>
-          {this.renderElements()}
+          {/* MVCompass: show bodyOverride when provided */}
+          {this.props.bodyOverride
+            ? this.props.bodyOverride
+            : this.renderElements()}
           {this.renderActions()}
         </div>
       </div>

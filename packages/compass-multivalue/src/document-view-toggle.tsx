@@ -439,7 +439,7 @@ export function DocumentViewToggle({
       {mode === 'source' && (
         <InlineSourceViewer
           source={sourceText}
-          darkMode={darkMode}
+          darkMode={darkMode ?? false}
           editable={!!onSaveSource}
           onSave={
             onSaveSource

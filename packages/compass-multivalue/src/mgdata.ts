@@ -199,11 +199,12 @@ export function parseMGData(
     const multivalued = Array.isArray(raw);
     const subvalued = multivalued && raw.some((el: any) => Array.isArray(el));
     const display = formatValue(raw, cfg);
-    const values = parseMultiValues(raw);
+    const typedRaw = raw as string | string[] | string[][];
+    const values = parseMultiValues(typedRaw);
 
     attributes.push({
       number,
-      raw: raw as string | string[] | string[][],
+      raw: typedRaw,
       multivalued,
       subvalued,
       display,

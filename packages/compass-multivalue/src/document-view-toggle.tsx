@@ -9,7 +9,12 @@ import {
 } from '@mongodb-js/compass-components';
 
 import { AttributeViewer, type AttributeViewerProps } from './attribute-viewer';
-import { isMGData, type MVDisplayConfig, type DictField } from './mgdata';
+import {
+  isMGData,
+  normalizeMGData,
+  type MVDisplayConfig,
+  type DictField,
+} from './mgdata';
 import {
   EditorView,
   lineNumbers,
@@ -376,7 +381,7 @@ export function DocumentViewToggle({
 
   // Build source text from MGData (only for program collections)
   const sourceText =
-    isProgram && hasMGData ? mgdataToSource(doc.MGData as unknown[]) : '';
+    isProgram && hasMGData ? mgdataToSource(normalizeMGData(doc.MGData)) : '';
 
   return (
     <div className={wrapperStyles} data-testid="document-view-toggle">

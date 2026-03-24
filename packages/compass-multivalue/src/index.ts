@@ -4,6 +4,7 @@
 export {
   isMGData,
   parseMGData,
+  normalizeMGData,
   formatValue,
   formatAttrNumber,
   parseMultiValues,

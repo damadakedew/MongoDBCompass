@@ -10,7 +10,12 @@ import {
 } from '@mongodb-js/compass-components';
 
 import type { DictField } from './mgdata';
-import { formatValue, DEFAULT_CONFIG, type MVDisplayConfig } from './mgdata';
+import {
+  formatValue,
+  normalizeMGData,
+  DEFAULT_CONFIG,
+  type MVDisplayConfig,
+} from './mgdata';
 import {
   buildMergedColumns,
   type DictColumnConfig,
@@ -238,7 +243,12 @@ export function DictColumnHeaders({
 
   const maxAttrs = useMemo(
     () =>
-      Math.max(0, ...documents.map((d) => (d.MGData ? d.MGData.length : 0))),
+      Math.max(
+        0,
+        ...documents.map((d) =>
+          d.MGData ? normalizeMGData(d.MGData).length : 0
+        )
+      ),
     [documents]
   );
 
@@ -287,8 +297,10 @@ export function DictColumnHeaders({
     const sortType: SortType = col?.sortType ?? 'string';
 
     return [...documents].sort((a, b) => {
-      const aVal = a.MGData?.[idx];
-      const bVal = b.MGData?.[idx];
+      const aNorm = normalizeMGData(a.MGData);
+      const bNorm = normalizeMGData(b.MGData);
+      const aVal = aNorm[idx];
+      const bVal = bNorm[idx];
 
       const aStr = Array.isArray(aVal)
         ? formatValue(aVal, cfg)
@@ -421,7 +433,7 @@ export function DictColumnHeaders({
                   {doc._id}
                 </td>
                 {columns.map((col) => {
-                  const raw = doc.MGData?.[col.index];
+                  const raw = normalizeMGData(doc.MGData)[col.index];
                   const display =
                     raw !== undefined ? formatValue(raw, cfg) : '';
                   return (

@@ -1,16 +1,20 @@
 /**
  * MGData TypeScript Library
  *
- * Pure formatting utility that parses MongoDB MGData arrays into structured
+ * Pure formatting utility that parses MongoDB MGData into structured
  * attribute objects for Pick-style display. No I/O, no bridge calls.
  *
- * MGData format:
+ * MGData format (current — object with string numeric keys):
+ *   { _id: "KEY", MGData: {"0": "attr1", "1": ["mv1", "mv2"], "2": "attr3"} }
+ *
+ * Legacy format (array — still supported via normalizeMGData):
  *   { _id: "KEY", MGData: ["attr1", ["mv1", "mv2"], "attr3"] }
  *
  * - Plain string = single-value attribute
  * - Array of strings = multi-valued attribute (VM)
  * - Array containing arrays = sub-values within multi-values (SVM)
  * - 0-indexed in MongoDB, displayed 1-indexed in Pick
+ * - Sparse — empty attributes omitted in object format
  */
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -145,23 +149,52 @@ export function parseMultiValues(
 }
 
 /**
- * Parse an MGData array into structured attributes.
+ * Normalize MGData from either object format (dict with string numeric keys)
+ * or legacy array format into a plain array.
  *
- * @param mgdata - The MGData array from a MongoDB document
+ * Object format: {"0": "val", "1": ["mv1", "mv2"], "3": "sparse"}
+ * Array format:  ["val", ["mv1", "mv2"], null, "sparse"]
+ *
+ * Sparse object keys produce null in skipped positions.
+ */
+export function normalizeMGData(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    const keys = Object.keys(obj)
+      .map(Number)
+      .filter((n) => !isNaN(n));
+    if (keys.length === 0) return [];
+    const max = Math.max(...keys);
+    const result: unknown[] = new Array(max + 1).fill(null);
+    for (const k of Object.keys(obj)) {
+      const idx = Number(k);
+      if (!isNaN(idx)) result[idx] = obj[k];
+    }
+    return result;
+  }
+  return [];
+}
+
+/**
+ * Parse an MGData array (or object) into structured attributes.
+ *
+ * @param mgdata - The MGData field from a MongoDB document (array or object)
  * @param config - Display configuration (optional, uses defaults)
  * @returns Array of MVAttribute objects, 1-indexed
  */
 export function parseMGData(
-  mgdata: any[],
+  mgdata: unknown,
   config?: Partial<MVDisplayConfig>
 ): MVAttribute[] {
-  if (!Array.isArray(mgdata)) return [];
+  const normalized = normalizeMGData(mgdata);
+  if (normalized.length === 0) return [];
 
   const cfg: MVDisplayConfig = { ...DEFAULT_CONFIG, ...config };
   const attributes: MVAttribute[] = [];
 
-  for (let i = 0; i < mgdata.length; i++) {
-    const raw = mgdata[i];
+  for (let i = 0; i < normalized.length; i++) {
+    const raw = normalized[i];
     const number = i + 1;
     const multivalued = Array.isArray(raw);
     const subvalued = multivalued && raw.some((el: any) => Array.isArray(el));
@@ -170,7 +203,7 @@ export function parseMGData(
 
     attributes.push({
       number,
-      raw,
+      raw: raw as string | string[] | string[][],
       multivalued,
       subvalued,
       display,
@@ -184,9 +217,11 @@ export function parseMGData(
 /**
  * Check if a MongoDB document uses the MGData multivalue format.
  *
- * Validates the full document structure: must have _id and MGData fields,
- * MGData must be a non-empty array, and array elements must be strings,
- * arrays of strings, or nested arrays of strings (no plain objects).
+ * Validates the full document structure: must have _id and MGData fields.
+ * MGData can be either a non-empty array (legacy) or a non-empty object
+ * with string numeric keys (current format). After normalization, array
+ * elements must be strings, arrays of strings, or nested arrays of strings
+ * (no plain objects).
  *
  * @param doc - A MongoDB document to check
  * @returns true if the document uses MGData format
@@ -194,9 +229,8 @@ export function parseMGData(
 export function isMGData(doc: Record<string, unknown>): boolean {
   if (doc == null || typeof doc !== 'object') return false;
   if (!('_id' in doc) || !('MGData' in doc)) return false;
-  if (!Array.isArray(doc.MGData)) return false;
 
-  const mgdata = doc.MGData;
+  const mgdata = normalizeMGData(doc.MGData);
   if (mgdata.length === 0) return false;
 
   for (const element of mgdata) {
